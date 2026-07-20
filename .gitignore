@@ -1,0 +1,19 @@
+# dependencies
+node_modules/
+
+# build
+dist/
+*.tsbuildinfo
+
+# env / secrets — NUNCA commitar tokens
+.env
+.env.*
+*.local
+
+# editor / os
+.DS_Store
+.vscode/
+.idea/
+
+# logs
+npm-debug.log*

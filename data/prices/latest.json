@@ -1,0 +1,9 @@
+{
+  "atualizadoEm": null,
+  "fonte": "seed inicial — sera sobrescrito pela GitHub Action de precos",
+  "cambio": {
+    "USD": 1
+  },
+  "acoes": {},
+  "tesouro": {}
+}

@@ -1,0 +1,145 @@
+/*
+ * Design tokens — tema NEUTRO (funcionalidade primeiro).
+ * Para aplicar a marca do ESALQ Finance depois, basta trocar estes valores;
+ * os componentes só referenciam as variáveis, sem cores fixas.
+ */
+:root {
+  --cor-primaria: #1f3a5f;
+  --cor-primaria-forte: #16293f;
+  --cor-acento: #2f7d6e;
+  --fundo: #f5f6f8;
+  --superficie: #ffffff;
+  --superficie-2: #f0f2f5;
+  --borda: #e2e5ea;
+  --texto: #1a1d21;
+  --texto-fraco: #5b636e;
+  --pos: #087443;
+  --neg: #b3261e;
+  --raio: 10px;
+  --sombra: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.1);
+  --fonte: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --cor-primaria: #7aa2d6;
+    --cor-primaria-forte: #a9c4e8;
+    --cor-acento: #57c3ac;
+    --fundo: #0f1216;
+    --superficie: #171b21;
+    --superficie-2: #1e232b;
+    --borda: #2a313b;
+    --texto: #e7eaee;
+    --texto-fraco: #9aa4b1;
+    --pos: #34d399;
+    --neg: #f87171;
+    --sombra: 0 1px 2px rgba(0, 0, 0, 0.4);
+  }
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  font-family: var(--fonte);
+  background: var(--fundo);
+  color: var(--texto);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+h1, h2, h3 { color: var(--texto); margin: 0 0 0.5rem; }
+a { color: var(--cor-acento); }
+
+.container { max-width: 1180px; margin: 0 auto; padding: 1rem 1.25rem 4rem; }
+
+.card {
+  background: var(--superficie);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio);
+  box-shadow: var(--sombra);
+  padding: 1rem 1.25rem;
+}
+
+.grid { display: grid; gap: 1rem; }
+.row { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; }
+.spacer { flex: 1; }
+.muted { color: var(--texto-fraco); }
+.pos { color: var(--pos); }
+.neg { color: var(--neg); }
+.right { text-align: right; }
+.nowrap { white-space: nowrap; }
+
+/* topo */
+.topbar {
+  background: var(--cor-primaria);
+  color: #fff;
+  padding: 0.85rem 1.25rem;
+}
+.topbar .container { padding: 0; display: flex; align-items: center; gap: 1rem; }
+.topbar h1 { color: #fff; font-size: 1.15rem; margin: 0; }
+.topbar .muted { color: rgba(255, 255, 255, 0.75); }
+
+/* abas */
+.tabs { display: flex; gap: 0.25rem; flex-wrap: wrap; margin: 1rem 0; }
+.tab {
+  border: 1px solid var(--borda);
+  background: var(--superficie);
+  color: var(--texto);
+  padding: 0.45rem 0.9rem;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.tab.ativo { background: var(--cor-primaria); color: #fff; border-color: var(--cor-primaria); }
+
+/* KPIs */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; }
+.kpi { padding: 0.9rem 1rem; }
+.kpi .valor { font-size: 1.5rem; font-weight: 700; }
+.kpi .rotulo { color: var(--texto-fraco); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; }
+
+/* form */
+label { display: block; font-size: 0.85rem; color: var(--texto-fraco); margin-bottom: 0.25rem; }
+input, select {
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  background: var(--superficie);
+  color: var(--texto);
+  font-size: 0.95rem;
+}
+.campo { margin-bottom: 0.75rem; }
+button {
+  border: 1px solid var(--cor-primaria);
+  background: var(--cor-primaria);
+  color: #fff;
+  padding: 0.55rem 1rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+button.secundario { background: transparent; color: var(--cor-primaria); }
+button:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* tabela */
+table { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
+.tabela-scroll { overflow-x: auto; }
+th, td { padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--borda); text-align: left; white-space: nowrap; }
+th { color: var(--texto-fraco); font-weight: 600; background: var(--superficie-2); position: sticky; top: 0; }
+tbody tr:hover { background: var(--superficie-2); }
+
+.badge {
+  display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px;
+  background: var(--superficie-2); color: var(--texto-fraco); font-size: 0.75rem;
+}
+.alerta { border-left: 3px solid var(--neg); background: var(--superficie-2); padding: 0.6rem 0.8rem; border-radius: 8px; }
+.aviso { border-left: 3px solid var(--cor-acento); background: var(--superficie-2); padding: 0.6rem 0.8rem; border-radius: 8px; }
+
+@media print {
+  .no-print { display: none !important; }
+  body { background: #fff; }
+  .card { box-shadow: none; }
+}
