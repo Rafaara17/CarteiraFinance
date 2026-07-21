@@ -1,8 +1,8 @@
 {
-  "atualizadoEm": null,
-  "fonte": "seed inicial — sera sobrescrito pela GitHub Action de precos",
+  "atualizadoEm": "2026-07-21T00:51:26.618Z",
+  "fonte": "yahoo finance + awesomeapi + tesouro direto",
   "cambio": {
-    "USD": 1
+    "BRL": 1
   },
   "acoes": {},
   "tesouro": {}
