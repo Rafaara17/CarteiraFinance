@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { fmtBRL, fmtNum } from "../engine/report";
 import type { Ativo, PortfolioSnapshot, PrecosSnapshot, TxTrade } from "../engine/types";
 import type { GitHubClient } from "../data/githubClient";
-import { cotacaoDolar, cotarAtivo } from "../data/precoProvider";
+import { cotacaoDolar, precoAcaoBR } from "../data/precoProvider";
 
 interface Props {
   client: GitHubClient;
@@ -10,7 +10,6 @@ interface Props {
   ativos: Ativo[];
   precos: PrecosSnapshot;
   membro: string;
-  finnhubKey?: string;
   onDone: () => void;
 }
 
@@ -32,8 +31,9 @@ export function Trade(props: Props) {
         </button>
       </div>
       <div className="card aviso no-print" style={{ fontSize: "0.85rem" }}>
-        Caixa disponível: <strong>{fmtBRL(props.snapshot.caixaBRL)}</strong> · Os preços usados são
-        oficiais e obtidos no momento da operação — você não digita o preço de ações.
+        Caixa disponível: <strong>{fmtBRL(props.snapshot.caixaBRL)}</strong> · Preços oficiais: B3 ao
+        vivo; ativos em USD pelo último snapshot da Action (Yahoo, sem chave); dólar ao vivo. Você não
+        digita o preço de ações.
       </div>
       {sub === "acoes" && <ComprarAcao {...props} />}
       {sub === "rendafixa" && <RendaFixa {...props} />}
@@ -46,7 +46,21 @@ function uuid() {
   return crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random();
 }
 
-function ComprarAcao({ client, snapshot, membro, finnhubKey, onDone }: Props) {
+/** Preço oficial para operar: B3 ao vivo (fallback snapshot); USD sempre do snapshot. */
+async function precoOperacao(tk: string, moeda: string, precos: PrecosSnapshot): Promise<number | null> {
+  if (moeda === "BRL") {
+    try {
+      return await precoAcaoBR(tk);
+    } catch {
+      const s = precos.acoes[tk];
+      return typeof s === "number" && s > 0 ? s : null;
+    }
+  }
+  const s = precos.acoes[tk];
+  return typeof s === "number" && s > 0 ? s : null;
+}
+
+function ComprarAcao({ client, snapshot, precos, membro, onDone }: Props) {
   const [ticker, setTicker] = useState("");
   const [bolsa, setBolsa] = useState("B3");
   const [classe, setClasse] = useState("acao");
@@ -67,19 +81,28 @@ function ComprarAcao({ client, snapshot, membro, finnhubKey, onDone }: Props) {
     }
     setOcupado(true);
     try {
-      const { preco } = await cotarAtivo(tk, bolsa, moeda, finnhubKey);
+      const ativo: Ativo = { id: tk, tipo: classe as Ativo["tipo"], ticker: tk, bolsa, moeda, nome: nome.trim() || tk };
+      const preco = await precoOperacao(tk, moeda, precos);
+      if (preco == null) {
+        // Sem cotação oficial ainda: registra o ativo para a Action precificar.
+        await client.upsertAtivo(ativo);
+        setMsg(
+          `Sem cotação oficial de ${tk} ainda. Ativo registrado — rode a Action “Atualizar preços” (ou aguarde o próximo ciclo) e finalize a compra depois.`,
+        );
+        return;
+      }
       const fx = moeda === "BRL" ? 1 : await cotacaoDolar();
       const custoBRL = q * preco * fx;
       if (custoBRL > snapshot.caixaBRL + 1e-6) {
         setMsg(`Caixa insuficiente: custo ${fmtBRL(custoBRL)} > caixa ${fmtBRL(snapshot.caixaBRL)}.`);
-        setOcupado(false);
         return;
       }
-      const ativo: Ativo = { id: tk, tipo: classe as Ativo["tipo"], ticker: tk, bolsa, moeda, nome: nome.trim() || tk };
       await client.upsertAtivo(ativo);
       const tx: TxTrade = { id: uuid(), ts: new Date().toISOString(), tipo: "compra", membro, ticker: tk, qtd: q, preco, moeda, fx };
       await client.appendTransacao(tx);
-      setMsg(`Compra registrada: ${q} ${tk} a ${fmtNum(preco, 2)} ${moeda}${moeda !== "BRL" ? ` (dólar ${fmtNum(fx, 4)})` : ""} = ${fmtBRL(custoBRL)}.`);
+      setMsg(
+        `Compra registrada: ${q} ${tk} a ${fmtNum(preco, 2)} ${moeda}${moeda !== "BRL" ? ` (dólar ${fmtNum(fx, 4)})` : ""} = ${fmtBRL(custoBRL)}.`,
+      );
       setTicker("");
       setQtd("");
       setNome("");
@@ -130,7 +153,7 @@ function ComprarAcao({ client, snapshot, membro, finnhubKey, onDone }: Props) {
           {ocupado ? "Cotando..." : `Cotar e comprar (${moeda})`}
         </button>
         <span className="muted" style={{ fontSize: "0.8rem" }}>
-          Ativos em USD exigem chave Finnhub nas configurações.
+          Ativos em USD são precificados pela Action (Yahoo) — sem chave de API.
         </span>
       </div>
       {msg && <p className="aviso" style={{ marginBottom: 0 }}>{msg}</p>}
@@ -138,7 +161,7 @@ function ComprarAcao({ client, snapshot, membro, finnhubKey, onDone }: Props) {
   );
 }
 
-function Vender({ client, snapshot, ativos, membro, finnhubKey, onDone }: Props) {
+function Vender({ client, snapshot, precos, membro, onDone }: Props) {
   const posicoes = snapshot.posicoes.filter((p) => p.qtd > 0);
   const [ticker, setTicker] = useState(posicoes[0]?.ticker ?? "");
   const [qtd, setQtd] = useState("");
@@ -146,7 +169,6 @@ function Vender({ client, snapshot, ativos, membro, finnhubKey, onDone }: Props)
   const [ocupado, setOcupado] = useState(false);
 
   const posSel = posicoes.find((p) => p.ticker === ticker);
-  const ativoSel = ativos.find((a) => a.ticker === ticker);
 
   async function vender() {
     setMsg(null);
@@ -162,14 +184,19 @@ function Vender({ client, snapshot, ativos, membro, finnhubKey, onDone }: Props)
     setOcupado(true);
     try {
       const ehRF = posSel.classe === "tesouro" || posSel.classe === "bond";
-      let preco: number;
-      let fx = 1;
       const moeda = posSel.moeda;
+      let preco: number | null;
+      let fx = 1;
       if (ehRF) {
         // renda fixa: vende pelo valor marcado atual (PU/linear já no snapshot)
         preco = posSel.precoAtual ?? posSel.custoMedioBRL;
       } else {
-        preco = (await cotarAtivo(ticker, String(posSel.bolsa), moeda, finnhubKey)).preco;
+        preco = await precoOperacao(ticker, moeda, precos);
+        if (preco == null) {
+          setMsg(`Sem cotação oficial de ${ticker} para vender. Rode a Action “Atualizar preços” e tente de novo.`);
+          setOcupado(false);
+          return;
+        }
         fx = moeda === "BRL" ? 1 : await cotacaoDolar();
       }
       const tx: TxTrade = { id: uuid(), ts: new Date().toISOString(), tipo: "venda", membro, ticker, qtd: q, preco, moeda, fx };
@@ -211,7 +238,7 @@ function Vender({ client, snapshot, ativos, membro, finnhubKey, onDone }: Props)
         <button disabled={ocupado} onClick={vender}>
           {ocupado ? "Processando..." : "Cotar e vender"}
         </button>
-        {ativoSel?.moeda && ativoSel.moeda !== "BRL" && (
+        {posSel?.moeda && posSel.moeda !== "BRL" && (
           <span className="muted" style={{ fontSize: "0.8rem" }}>
             Conversão pelo dólar no momento da venda.
           </span>

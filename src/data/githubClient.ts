@@ -4,6 +4,12 @@ import type { Settings } from "./settings";
 
 const API = "https://api.github.com";
 
+/** Autor/committer neutro — desacopla o histórico de qualquer pessoa. */
+const IDENTIDADE_LIGA = {
+  name: "Carteira da Liga",
+  email: "carteira-da-liga@users.noreply.github.com",
+} as const;
+
 export interface ArquivoLido {
   conteudo: string;
   sha: string;
@@ -55,12 +61,16 @@ export class GitHubClient {
   /** Grava (cria/atualiza) um arquivo. Passe `sha` para atualizar existente. */
   async gravarArquivo(path: string, conteudo: string, mensagem: string, sha?: string): Promise<void> {
     const url = `${this.base}/contents/${encodeURIComponent(path)}`;
+    // Identidade NEUTRA da liga: o histórico não fica atrelado a nenhuma pessoa,
+    // então a carteira sobrevive à saída de qualquer membro. Quem operou fica
+    // registrado apenas como rótulo dentro da própria transação (campo `membro`).
     const body = {
       message: mensagem,
       content: encodeBase64(conteudo),
       branch: this.s.branch,
       sha,
-      committer: { name: this.s.membro || "liga", email: "liga@carteirafinance.local" },
+      author: IDENTIDADE_LIGA,
+      committer: IDENTIDADE_LIGA,
     };
     const resp = await fetch(url, { method: "PUT", headers: this.headers(), body: JSON.stringify(body) });
     if (!resp.ok) throw await erro(resp, `gravar ${path}`);

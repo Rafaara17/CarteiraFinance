@@ -27,9 +27,6 @@ jobs:
         run: npm ci
 
       - name: Buscar preços oficiais
-        env:
-          FINNHUB_KEY: ${{ secrets.FINNHUB_KEY }}
-          BRAPI_TOKEN: ${{ secrets.BRAPI_TOKEN }}
         run: npm run fetch-prices
 
       - name: Commitar snapshot

@@ -7,8 +7,6 @@ export interface Settings {
   branch: string;
   membro: string;
   token: string;
-  /** chave opcional do provedor de ações US (Finnhub), para cotação ao vivo. */
-  finnhubKey?: string;
 }
 
 const CHAVE = "carteirafinance.settings";
@@ -19,7 +17,6 @@ export const SETTINGS_PADRAO: Settings = {
   branch: "main",
   membro: "",
   token: "",
-  finnhubKey: "",
 };
 
 export function carregarSettings(): Settings {

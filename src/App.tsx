@@ -96,7 +96,6 @@ export function App() {
                 ativos={dados.ativos}
                 precos={dados.precos}
                 membro={settings.membro}
-                finnhubKey={settings.finnhubKey}
                 onDone={dados.recarregar}
               />
             )}

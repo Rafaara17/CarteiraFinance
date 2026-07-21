@@ -2,11 +2,10 @@
  * Busca preços/câmbio OFICIAIS (server-side, sem CORS) e grava
  * data/prices/latest.json. Rodado pela GitHub Action (dias úteis).
  *
- * Fontes:
- *  - B3 (ação/ETF/FII): brapi.dev   (token opcional em BRAPI_TOKEN)
- *  - US (NYSE/NASDAQ):   Finnhub     (chave em FINNHUB_KEY)
- *  - Câmbio USD/BRL:     AwesomeAPI  (cotação real momentânea)
- *  - Tesouro Direto:     API oficial do Tesouro Direto (PU de resgate)
+ * Fontes (todas SEM chave de API):
+ *  - Ações (B3, NYSE, NASDAQ): Yahoo Finance (B3 usa sufixo ".SA")
+ *  - Câmbio USD/BRL:           AwesomeAPI (cotação real momentânea)
+ *  - Tesouro Direto:           API oficial do Tesouro Direto (PU de resgate)
  *
  * Cada fonte é isolada em try/catch: uma falha não derruba as demais.
  */
@@ -33,14 +32,11 @@ const RAIZ = resolve(process.cwd());
 const ASSETS = resolve(RAIZ, "data/assets.json");
 const SAIDA = resolve(RAIZ, "data/prices/latest.json");
 
-const BRAPI_TOKEN = process.env.BRAPI_TOKEN ?? "";
-const FINNHUB_KEY = process.env.FINNHUB_KEY ?? "";
-
 async function main() {
   const ativos: AtivoLite[] = JSON.parse(readFileSync(ASSETS, "utf8"));
   const snap: Snapshot = {
     atualizadoEm: new Date().toISOString(),
-    fonte: "brapi + finnhub + awesomeapi + tesouro direto",
+    fonte: "yahoo finance + awesomeapi + tesouro direto",
     cambio: { BRL: 1 },
     acoes: {},
     tesouro: {},
@@ -54,24 +50,16 @@ async function main() {
     console.warn("Falha no câmbio USD/BRL:", msg(e));
   }
 
-  // --- Ações ---
-  const b3 = ativos.filter((a) => (a.bolsa === "B3" || a.moeda === "BRL") && ehAcao(a.tipo));
-  const us = ativos.filter((a) => a.moeda === "USD" && ehAcao(a.tipo));
-
-  for (const a of b3) {
+  // --- Ações (Yahoo Finance, sem chave; B3 usa sufixo .SA) ---
+  const acoes = ativos.filter((a) => ehAcao(a.tipo));
+  for (const a of acoes) {
+    const ehBR = a.bolsa === "B3" || a.moeda === "BRL";
+    const symbol = ehBR ? `${a.ticker}.SA` : a.ticker;
     try {
-      snap.acoes[a.ticker] = await precoBrapi(a.ticker);
-      console.log(`B3 ${a.ticker} = ${snap.acoes[a.ticker]}`);
+      snap.acoes[a.ticker] = await precoYahoo(symbol);
+      console.log(`${a.ticker} (${symbol}) = ${snap.acoes[a.ticker]}`);
     } catch (e) {
-      console.warn(`Falha B3 ${a.ticker}:`, msg(e));
-    }
-  }
-  for (const a of us) {
-    try {
-      snap.acoes[a.ticker] = await precoFinnhub(a.ticker);
-      console.log(`US ${a.ticker} = ${snap.acoes[a.ticker]}`);
-    } catch (e) {
-      console.warn(`Falha US ${a.ticker}:`, msg(e));
+      console.warn(`Falha ${a.ticker} (${symbol}):`, msg(e));
     }
   }
 
@@ -106,21 +94,17 @@ async function cotacaoDolar(): Promise<number> {
   return v;
 }
 
-async function precoBrapi(ticker: string): Promise<number> {
-  const url = `https://brapi.dev/api/quote/${encodeURIComponent(ticker)}${BRAPI_TOKEN ? `?token=${BRAPI_TOKEN}` : ""}`;
-  const r = await fetch(url);
-  const j = (await r.json()) as { results?: Array<{ regularMarketPrice?: number }> };
-  const p = j.results?.[0]?.regularMarketPrice;
+/** Yahoo Finance (endpoint chart, sem chave). B3 usa sufixo ".SA" (ex.: PETR4.SA). */
+async function precoYahoo(symbol: string): Promise<number> {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1d`;
+  const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (CarteiraFinance)" } });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const j = (await r.json()) as {
+    chart?: { result?: Array<{ meta?: { regularMarketPrice?: number } }> };
+  };
+  const p = j.chart?.result?.[0]?.meta?.regularMarketPrice;
   if (typeof p !== "number" || p <= 0) throw new Error("sem cotação");
   return p;
-}
-
-async function precoFinnhub(ticker: string): Promise<number> {
-  if (!FINNHUB_KEY) throw new Error("FINNHUB_KEY não configurada");
-  const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(ticker)}&token=${FINNHUB_KEY}`);
-  const j = (await r.json()) as { c?: number };
-  if (typeof j.c !== "number" || j.c <= 0) throw new Error("sem cotação");
-  return j.c;
 }
 
 /** API oficial do Tesouro Direto: nome -> PU de resgate (marcação a mercado). */

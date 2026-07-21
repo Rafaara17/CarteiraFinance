@@ -32,26 +32,40 @@ GitHub Actions (cron)     ──preços oficiais──────────�
 - **Renda fixa:** Tesouro Direto marca pelo **PU oficial**; sem MtM disponível, o valor cresce
   **linearmente** do PU de compra até o valor de vencimento.
 
+## Continuidade — a carteira não depende de nenhuma pessoa
+
+Como a liga permanece por muito tempo e os membros entram e saem, **nada pode ficar atrelado a uma
+conta pessoal**. Recomendação:
+
+1. **Coloque o repositório numa Organização do GitHub da liga** (grátis). A org tem vários *owners* e
+   sobrevive à saída de qualquer um; a posse é repassada sem quebrar nada. Se preferir algo mais leve,
+   use uma **conta-robô** dedicada (ex.: `carteira-liga-bot`) como dona do repositório.
+2. **Crie um token da conta-robô/da org**, não o seu: um **fine-grained PAT** com escopo **só neste
+   repositório** e permissão **Contents: Read and write**. É esse token que os membros colam no app.
+3. **Ao sair**, você só repassa a posse da org (ou as credenciais do robô) para o próximo responsável.
+   Nenhum código muda; a URL, os dados e o histórico continuam.
+
+Os **commits são gravados com identidade neutra** ("Carteira da Liga"), então o histórico do Git não
+fica no nome de ninguém. Quem operou cada transação fica registrado apenas como um **rótulo** dentro do
+próprio lançamento (campo `membro`), útil para conferência, sem criar dependência de conta.
+
 ## Setup (uma vez)
 
 1. **GitHub Pages:** em *Settings → Pages*, defina *Source = GitHub Actions*. O deploy publica a cada
    push no branch `main`.
-2. **Token de acesso (por membro):** crie um **fine-grained PAT** (*Settings → Developer settings →
-   Fine-grained tokens*) com escopo **apenas neste repositório** e permissão **Contents: Read and
-   write**. É esse token que cada membro cola no app para operar.
-3. **Secrets da Action (opcionais):** em *Settings → Secrets and variables → Actions*:
-   - `FINNHUB_KEY` — chave grátis do [Finnhub](https://finnhub.io) para ações US (NYSE/NASDAQ).
-   - `BRAPI_TOKEN` — token do [brapi.dev](https://brapi.dev) se sua conta exigir (B3).
-4. **Acesse** a URL do Pages, informe seu nome e o token. Pronto para operar.
+2. **Token da liga:** gere o fine-grained PAT da conta-robô/org (ver seção acima) e distribua aos
+   membros. **Nenhuma chave de API é necessária** — os preços usam fontes públicas sem chave.
+3. **Acesse** a URL do Pages, informe seu nome (rótulo) e o token da liga. Pronto para operar.
 
-> Segurança: o token fica **só no seu navegador** (localStorage) e é enviado apenas à API do GitHub.
-> Use um token fine-grained restrito a este repo. É um tradeoff consciente para uma liga pequena e
-> confiável; uma evolução futura seria login OAuth (device flow) para não compartilhar PAT.
+> Segurança: o token fica **só no navegador** (localStorage) e é enviado apenas à API do GitHub. Use o
+> token **da liga** (robô/org), restrito a este repo. É um tradeoff consciente para uma liga pequena e
+> confiável; uma evolução futura seria login OAuth (device flow) para não compartilhar um token único.
 
 ## Uso
 
-- **Operar → Comprar ação/ETF/FII:** informe ticker, bolsa e quantidade. O preço oficial é cotado na
-  hora (B3 via brapi; USD via Finnhub) e o dólar real é aplicado.
+- **Operar → Comprar ação/ETF/FII:** informe ticker, bolsa e quantidade. O preço oficial da B3 é
+  cotado na hora; ativos em USD usam o último preço oficial do snapshot (Yahoo, via Action) e o dólar
+  real é aplicado na conversão. Um ticker ainda sem cotação é registrado para a Action precificar.
 - **Operar → Renda fixa:** Tesouro Direto (PU oficial do snapshot) ou título genérico (define
   vencimento e valor no vencimento para o crescimento linear).
 - **Operar → Vender:** escolhe a posição e a quantidade; cota e registra a venda.
@@ -86,11 +100,14 @@ scripts/fetch-prices.ts    # busca preços/câmbio oficiais (server-side, sem CO
 .github/workflows/         # prices.yml (cron) e deploy.yml (GitHub Pages)
 ```
 
-## Fontes de preço
+## Fontes de preço (todas sem chave de API)
 
-| Ativo                | Fonte                                   |
-| -------------------- | --------------------------------------- |
-| Ações/ETF/FII da B3  | brapi.dev                               |
-| Ações NYSE/NASDAQ    | Finnhub (requer `FINNHUB_KEY`)          |
-| Câmbio USD/BRL       | AwesomeAPI (cotação real momentânea)    |
-| Tesouro Direto (PU)  | API oficial do Tesouro Direto           |
+| Ativo                | Fonte                                                         |
+| -------------------- | ------------------------------------------------------------- |
+| Ações/ETF/FII da B3  | Yahoo Finance na Action (sufixo `.SA`); brapi ao vivo no app  |
+| Ações NYSE/NASDAQ    | Yahoo Finance na Action (o navegador lê o snapshot; CORS)     |
+| Câmbio USD/BRL       | AwesomeAPI (cotação real momentânea)                          |
+| Tesouro Direto (PU)  | API oficial do Tesouro Direto                                 |
+
+> Por que ações US vêm do snapshot: o Yahoo bloqueia chamadas diretas do navegador (CORS). A Action
+> (servidor) busca sem restrição e commita os preços; o app lê o snapshot. Assim não é preciso chave.

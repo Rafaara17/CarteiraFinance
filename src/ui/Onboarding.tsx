@@ -21,12 +21,13 @@ export function Onboarding({ inicial, onSalvar }: Props) {
       <div className="card" style={{ maxWidth: 560, margin: "2rem auto" }}>
         <h2>Entrar na Carteira da Liga</h2>
         <p className="muted">
-          Seus dados ficam só neste navegador (localStorage). O token nunca é enviado a lugar nenhum
-          além da API do GitHub.
+          Use o <strong>token da conta-robô da liga</strong> (não o seu token pessoal) para que a
+          carteira não fique atrelada a ninguém. O token fica só neste navegador (localStorage) e só é
+          enviado à API do GitHub.
         </p>
 
         <div className="campo">
-          <label>Seu nome (membro)</label>
+          <label>Seu nome (só um rótulo para o histórico)</label>
           <input value={s.membro} onChange={set("membro")} placeholder="ex.: Ana Souza" />
         </div>
 
@@ -48,11 +49,6 @@ export function Onboarding({ inicial, onSalvar }: Props) {
         <div className="campo">
           <label>Token do GitHub (fine-grained, Contents: read/write neste repo)</label>
           <input type="password" value={s.token} onChange={set("token")} placeholder="github_pat_..." />
-        </div>
-
-        <div className="campo">
-          <label>Chave Finnhub (opcional — cotação ao vivo de ativos em USD)</label>
-          <input value={s.finnhubKey ?? ""} onChange={set("finnhubKey")} placeholder="opcional" />
         </div>
 
         <div className="row">
