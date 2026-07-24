@@ -8,9 +8,10 @@
 import { createClient } from "@supabase/supabase-js";
 
 const URL_PADRAO = "https://xunrylqbpflfhscfowvj.supabase.co";
+const ANON_PADRAO = "sb_publishable_1yuR0E5BkeZSf7fxp3mukA_LYaw3T4a";
 
 const url = (import.meta.env.VITE_SUPABASE_URL as string | undefined) || URL_PADRAO;
-const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+const anon = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) || ANON_PADRAO;
 
 if (!anon) {
   throw new Error(
