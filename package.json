@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "fetch-prices": "tsx scripts/fetch-prices.ts"
+    "fetch-prices": "tsx scripts/fetch-prices.ts",
+    "fetch-dividends": "tsx scripts/fetch-dividends.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

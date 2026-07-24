@@ -31,3 +31,11 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: npm run fetch-prices
+
+      - name: Creditar proventos (Yahoo) no Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Corte de ativação: só credita proventos com data-ex a partir desta data.
+          PROVENTOS_DESDE: "2026-07-24"
+        run: npm run fetch-dividends

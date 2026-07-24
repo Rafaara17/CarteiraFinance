@@ -50,7 +50,7 @@ export interface TxTrade extends TransacaoBase {
   tipo: "compra" | "venda";
   ticker: string;
   qtd: number;
-  preco: number; // na moeda do ativo (preço OFICIAL no momento — não editável na UI)
+  preco: number; // na moeda do ativo: preço PAGO informado na compra (ou PU, na renda fixa)
   moeda: Moeda;
   fx: number; // câmbio moeda->BRL no momento da operação (1 para BRL)
   taxa?: number; // custo/corretagem em BRL (opcional)
