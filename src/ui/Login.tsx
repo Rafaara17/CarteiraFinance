@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { signIn } from "../data/session";
+import { Marca } from "./Marca";
 
 /** Tela de entrada: login por e-mail/senha (acesso específico da liga). */
 export function Login() {
@@ -23,46 +24,54 @@ export function Login() {
   }
 
   return (
-    <div className="container">
-      <form className="card" style={{ maxWidth: 420, margin: "3rem auto" }} onSubmit={entrar}>
-        <h2>Entrar na Carteira da Liga</h2>
-        <p className="muted">
-          Acesso restrito aos membros da liga. Use o e-mail e a senha que o administrador cadastrou para você.
-        </p>
-
-        <div className="campo">
-          <label>E-mail</label>
-          <input
-            type="email"
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="voce@exemplo.com"
-          />
+    <div className="login-wrap">
+      <form className="login-card" onSubmit={entrar}>
+        <div className="login-hero">
+          <Marca />
+          <p>Liga de Mercado Financeiro da ESALQ/USP · Carteira da Liga</p>
         </div>
 
-        <div className="campo">
-          <label>Senha</label>
-          <input
-            type="password"
-            autoComplete="current-password"
-            value={senha}
-            onChange={(e) => setSenha(e.target.value)}
-            placeholder="••••••••"
-          />
-        </div>
+        <div className="login-body">
+          <p className="muted" style={{ marginTop: 0 }}>
+            Acesso restrito aos membros. Use o e-mail e a senha cadastrados pelo administrador.
+          </p>
 
-        <div className="row">
-          <button type="submit" disabled={ocupado || !email.trim() || !senha}>
+          <div className="campo">
+            <label>E-mail</label>
+            <input
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="voce@usp.br"
+            />
+          </div>
+
+          <div className="campo">
+            <label>Senha</label>
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={senha}
+              onChange={(e) => setSenha(e.target.value)}
+              placeholder="••••••••"
+            />
+          </div>
+
+          <button
+            type="submit"
+            style={{ width: "100%" }}
+            disabled={ocupado || !email.trim() || !senha}
+          >
             {ocupado ? "Entrando..." : "Entrar"}
           </button>
-        </div>
 
-        {erro && (
-          <p className="alerta" style={{ marginBottom: 0 }}>
-            {erro}
-          </p>
-        )}
+          {erro && (
+            <p className="alerta" style={{ marginBottom: 0, marginTop: "0.9rem" }}>
+              {erro}
+            </p>
+          )}
+        </div>
       </form>
     </div>
   );

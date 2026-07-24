@@ -2,7 +2,8 @@ import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from "recha
 import { fmtBRL, fmtPct } from "../engine/report";
 import type { AlocacaoItem, PortfolioSnapshot } from "../engine/types";
 
-const CORES = ["#1f3a5f", "#2f7d6e", "#c08a2d", "#7a5195", "#ef5675", "#3b8ea5", "#8fbf5f", "#bc5090"];
+// Paleta categórica da marca ESALQ Finance (marinho + vermelho na frente).
+const CORES = ["#17416b", "#9b1313", "#c99a2e", "#2f8f83", "#4f86c0", "#7a5195", "#8a9b3a", "#b0742f"];
 
 export function Allocation({ snapshot }: { snapshot: PortfolioSnapshot }) {
   if (snapshot.valorInvestidoBRL <= 0) {

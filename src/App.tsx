@@ -4,6 +4,7 @@ import { getSession, membroAtual, onAuthChange, signOut } from "./data/session";
 import { Allocation } from "./ui/Allocation";
 import { History } from "./ui/History";
 import { Login } from "./ui/Login";
+import { Marca } from "./ui/Marca";
 import { Overview } from "./ui/Overview";
 import { Positions } from "./ui/Positions";
 import { Report } from "./ui/Report";
@@ -61,21 +62,17 @@ export function App() {
     <>
       <header className="topbar no-print">
         <div className="container">
-          <h1>{nomeLiga}</h1>
-          <span className="muted">· {membro}</span>
+          <div className="marca">
+            <Marca />
+          </div>
+          <span className="topbar__sub">
+            {nomeLiga} <span className="membro">· {membro}</span>
+          </span>
           <div className="spacer" />
-          <button
-            className="secundario"
-            style={{ color: "#fff", borderColor: "rgba(255,255,255,.4)" }}
-            onClick={dados.recarregar}
-          >
+          <button className="secundario" onClick={dados.recarregar}>
             {dados.carregando ? "Atualizando..." : "Atualizar"}
           </button>
-          <button
-            className="secundario"
-            style={{ color: "#fff", borderColor: "rgba(255,255,255,.4)" }}
-            onClick={() => void signOut()}
-          >
+          <button className="secundario" onClick={() => void signOut()}>
             Sair
           </button>
         </div>
@@ -130,10 +127,11 @@ export function App() {
           </>
         )}
 
-        <p className="muted" style={{ fontSize: "0.75rem", marginTop: "2rem" }}>
-          Dados sincronizados na nuvem (Supabase) com acesso por login. Capital inicial fixo e imutável;
-          preços oficiais. As alterações aparecem em todas as máquinas em tempo real.
-        </p>
+        <footer className="rodape">
+          <strong>ESALQ Finance</strong> · Liga de Mercado Financeiro da ESALQ/USP
+          <br />
+          Carteira simulada · capital inicial fixo e imutável · preços oficiais · sincronizada na nuvem em tempo real.
+        </footer>
       </div>
     </>
   );
