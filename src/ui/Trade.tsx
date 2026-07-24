@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
 import { fmtBRL, fmtNum } from "../engine/report";
-import type { Ativo, PortfolioSnapshot, PrecosSnapshot, TxTrade } from "../engine/types";
+import type { Ativo, ClasseAtivo, PortfolioSnapshot, PrecosSnapshot, TxTrade } from "../engine/types";
 import { registrarTransacao, upsertAtivo } from "../data/supabaseClient";
-import { cotacaoDolar, precoAcaoBR } from "../data/precoProvider";
+import { classificarAtivo, cotacaoDolar, precoAcaoBR } from "../data/precoProvider";
+import type { AtivoClassificado } from "../data/precoProvider";
 
 interface Props {
   snapshot: PortfolioSnapshot;
@@ -30,9 +31,10 @@ export function Trade(props: Props) {
         </button>
       </div>
       <div className="card aviso no-print" style={{ fontSize: "0.85rem" }}>
-        Caixa disponível: <strong>{fmtBRL(props.snapshot.caixaBRL)}</strong> · Preços oficiais: B3 ao
-        vivo; ativos em USD pelo último snapshot da Action (Yahoo, sem chave); dólar ao vivo. Você não
-        digita o preço de ações.
+        Caixa disponível: <strong>{fmtBRL(props.snapshot.caixaBRL)}</strong> · Você informa apenas
+        ticker, quantidade e o <strong>preço pago</strong>; a bolsa e o tipo (ação/ETF/FII) são
+        detectados automaticamente. Os preços coletados (B3/Yahoo) servem só para calcular a
+        valorização/desvalorização da carteira.
       </div>
       {sub === "acoes" && <ComprarAcao {...props} />}
       {sub === "rendafixa" && <RendaFixa {...props} />}
@@ -59,52 +61,99 @@ async function precoOperacao(tk: string, moeda: string, precos: PrecosSnapshot):
   return typeof s === "number" && s > 0 ? s : null;
 }
 
+const ROTULO_CLASSE: Record<ClasseAtivo, string> = {
+  acao: "Ação",
+  etf: "ETF",
+  fii: "FII",
+  tesouro: "Tesouro",
+  bond: "Título",
+};
+
 function ComprarAcao({ snapshot, precos, membro, onDone }: Props) {
   const [ticker, setTicker] = useState("");
-  const [bolsa, setBolsa] = useState("B3");
-  const [classe, setClasse] = useState("acao");
+  const [precoPago, setPrecoPago] = useState("");
   const [nome, setNome] = useState("");
   const [qtd, setQtd] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
+  const [det, setDet] = useState<AtivoClassificado | null>(null);
+  const [detectando, setDetectando] = useState(false);
 
-  const moeda = bolsa === "B3" ? "BRL" : "USD";
+  const moeda = det?.moeda ?? "BRL";
+  const simbolo = moeda === "BRL" ? "R$" : "US$";
+
+  /** Detecta bolsa/tipo/preço de referência automaticamente ao sair do campo ticker. */
+  async function detectar() {
+    const tk = ticker.trim().toUpperCase();
+    if (!tk) {
+      setDet(null);
+      return;
+    }
+    setDetectando(true);
+    try {
+      setDet(await classificarAtivo(tk, precos));
+    } catch {
+      setDet(null);
+    } finally {
+      setDetectando(false);
+    }
+  }
 
   async function comprar() {
     setMsg(null);
     const q = Number(qtd);
+    const preco = Number(precoPago);
     const tk = ticker.trim().toUpperCase();
     if (!tk || !isFinite(q) || q <= 0) {
       setMsg("Informe ticker e quantidade válidos.");
       return;
     }
+    if (!isFinite(preco) || preco <= 0) {
+      setMsg("Informe o preço pago (por unidade).");
+      return;
+    }
     setOcupado(true);
     try {
-      const ativo: Ativo = { id: tk, tipo: classe as Ativo["tipo"], ticker: tk, bolsa, moeda, nome: nome.trim() || tk };
-      const preco = await precoOperacao(tk, moeda, precos);
-      if (preco == null) {
-        // Sem cotação oficial ainda: registra o ativo para a Action precificar.
-        await upsertAtivo(ativo);
-        setMsg(
-          `Sem cotação oficial de ${tk} ainda. Ativo registrado — rode a Action “Atualizar preços” (ou aguarde o próximo ciclo) e finalize a compra depois.`,
-        );
-        return;
-      }
-      const fx = moeda === "BRL" ? 1 : await cotacaoDolar();
+      // Usa a classificação já detectada; se o usuário não saiu do campo, classifica agora.
+      const info = det ?? (await classificarAtivo(tk, precos));
+      const fx = info.moeda === "BRL" ? 1 : await cotacaoDolar();
       const custoBRL = q * preco * fx;
       if (custoBRL > snapshot.caixaBRL + 1e-6) {
         setMsg(`Caixa insuficiente: custo ${fmtBRL(custoBRL)} > caixa ${fmtBRL(snapshot.caixaBRL)}.`);
         return;
       }
+      const ativo: Ativo = {
+        id: tk,
+        tipo: info.tipo,
+        ticker: tk,
+        bolsa: info.bolsa,
+        moeda: info.moeda,
+        nome: nome.trim() || info.nome || tk,
+      };
       await upsertAtivo(ativo);
-      const tx: TxTrade = { id: uuid(), ts: new Date().toISOString(), tipo: "compra", membro, ticker: tk, qtd: q, preco, moeda, fx };
+      // O preço gravado é o PREÇO PAGO informado; o preço de mercado (snapshot/B3)
+      // é usado só para a valorização/desvalorização da carteira.
+      const tx: TxTrade = {
+        id: uuid(),
+        ts: new Date().toISOString(),
+        tipo: "compra",
+        membro,
+        ticker: tk,
+        qtd: q,
+        preco,
+        moeda: info.moeda,
+        fx,
+      };
       await registrarTransacao(tx);
       setMsg(
-        `Compra registrada: ${q} ${tk} a ${fmtNum(preco, 2)} ${moeda}${moeda !== "BRL" ? ` (dólar ${fmtNum(fx, 4)})` : ""} = ${fmtBRL(custoBRL)}.`,
+        `Compra registrada: ${q} ${tk} (${ROTULO_CLASSE[info.tipo]}) a ${fmtNum(preco, 2)} ${info.moeda}` +
+          `${info.moeda !== "BRL" ? ` (dólar ${fmtNum(fx, 4)})` : ""} = ${fmtBRL(custoBRL)}.`,
       );
       setTicker("");
       setQtd("");
+      setPrecoPago("");
       setNome("");
+      setDet(null);
       onDone();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : String(e));
@@ -119,24 +168,16 @@ function ComprarAcao({ snapshot, precos, membro, onDone }: Props) {
       <div className="row">
         <div className="campo" style={{ flex: 1 }}>
           <label>Ticker</label>
-          <input value={ticker} onChange={(e) => setTicker(e.target.value)} placeholder="PETR4, AAPL, HGLG11..." />
+          <input
+            value={ticker}
+            onChange={(e) => setTicker(e.target.value)}
+            onBlur={detectar}
+            placeholder="PETR4, AAPL, HGLG11..."
+          />
         </div>
-        <div className="campo" style={{ width: 140 }}>
-          <label>Bolsa</label>
-          <select value={bolsa} onChange={(e) => setBolsa(e.target.value)}>
-            <option>B3</option>
-            <option>NYSE</option>
-            <option>NASDAQ</option>
-            <option value="OUTRA">Outra</option>
-          </select>
-        </div>
-        <div className="campo" style={{ width: 120 }}>
-          <label>Classe</label>
-          <select value={classe} onChange={(e) => setClasse(e.target.value)}>
-            <option value="acao">Ação</option>
-            <option value="etf">ETF</option>
-            <option value="fii">FII</option>
-          </select>
+        <div className="campo" style={{ width: 160 }}>
+          <label>Preço pago ({simbolo})</label>
+          <input value={precoPago} onChange={(e) => setPrecoPago(e.target.value)} inputMode="decimal" placeholder="ex.: 32.50" />
         </div>
         <div className="campo" style={{ width: 120 }}>
           <label>Quantidade</label>
@@ -147,12 +188,20 @@ function ComprarAcao({ snapshot, precos, membro, onDone }: Props) {
         <label>Nome (opcional)</label>
         <input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="ex.: Petrobras PN" />
       </div>
+      <p className="muted" style={{ fontSize: "0.82rem", margin: "0 0 0.6rem" }}>
+        {detectando
+          ? "Detectando ativo…"
+          : det
+            ? `Detectado: ${ROTULO_CLASSE[det.tipo]} · ${det.bolsa} · ${det.moeda}` +
+              (det.precoRef != null ? ` — preço atual ${simbolo} ${fmtNum(det.precoRef, 2)} (referência)` : " — sem cotação de referência ainda")
+            : "Digite o ticker e saia do campo para detectar bolsa e tipo automaticamente."}
+      </p>
       <div className="row">
         <button disabled={ocupado} onClick={comprar}>
-          {ocupado ? "Cotando..." : `Cotar e comprar (${moeda})`}
+          {ocupado ? "Registrando..." : "Registrar compra"}
         </button>
         <span className="muted" style={{ fontSize: "0.8rem" }}>
-          Ativos em USD são precificados pela Action (Yahoo) — sem chave de API.
+          Bolsa e tipo (ação/ETF/FII) são automáticos; ativos fora da B3 são tratados em USD.
         </span>
       </div>
       {msg && <p className="aviso" style={{ marginBottom: 0 }}>{msg}</p>}

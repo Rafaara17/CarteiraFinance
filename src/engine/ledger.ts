@@ -112,3 +112,25 @@ function pegar(m: Map<string, PosicaoBase>, ticker: string): PosicaoBase {
   }
   return p;
 }
+
+/**
+ * Quantidade de um ticker em carteira até (inclusive) uma data — soma de compras
+ * menos vendas com `ts <= dataISO`. Usado para a elegibilidade de proventos:
+ * só recebe quem tinha o ativo na data-com.
+ *
+ * A comparação é feita por instante (Date.parse), então funciona com qualquer
+ * formato ISO válido (o app grava "…Z"; o PostgREST devolve "…+00:00"). Passe
+ * `dataISO` como o fim do dia da data-com (ex.: "2026-07-24T23:59:59Z") para
+ * incluir tudo que foi negociado naquele dia.
+ */
+export function qtdNaData(transacoes: Transacao[], ticker: string, dataISO: string): number {
+  const limite = Date.parse(dataISO);
+  let qtd = 0;
+  for (const tx of transacoes) {
+    if (tx.ticker !== ticker) continue;
+    if (Date.parse(tx.ts) > limite) continue;
+    if (tx.tipo === "compra") qtd += tx.qtd;
+    else if (tx.tipo === "venda") qtd -= tx.qtd;
+  }
+  return qtd < EPS ? 0 : qtd;
+}
