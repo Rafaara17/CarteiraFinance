@@ -32,6 +32,11 @@ export function membroAtual(session: Session | null): string {
   return meta?.name?.trim() || meta?.full_name?.trim() || u.email || u.id;
 }
 
+/** Id (uuid) do usuário logado — chave em membros/wallets. */
+export function usuarioId(session: Session | null): string | null {
+  return session?.user?.id ?? null;
+}
+
 function traduzErro(msg: string): string {
   if (/invalid login credentials/i.test(msg)) return "E-mail ou senha inválidos.";
   if (/email not confirmed/i.test(msg)) return "E-mail ainda não confirmado. Verifique sua caixa de entrada.";

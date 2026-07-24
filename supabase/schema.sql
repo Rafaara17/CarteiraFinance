@@ -182,3 +182,200 @@ begin
     end if;
   end loop;
 end $$;
+
+-- ===========================================================================
+-- PRIVILÉGIOS + CARTEIRAS (carteira central da liga + carteiras pessoais)
+-- ---------------------------------------------------------------------------
+-- Modelo:
+--  - wallets  : as carteiras. Uma 'liga' (central, id fixo) + uma 'pessoal' por
+--               membro (dono = user_id).
+--  - membros  : papel de cada usuário ('admin' | 'gestor' | 'membro').
+--  - transactions.carteira_id: a qual carteira cada operação pertence.
+--
+-- Regra de permissão (o "sistema de privilégios"):
+--  - Só quem tem papel 'gestor' ou 'admin' OPERA (insere transações) na carteira
+--    da LIGA. Todos continuam LENDO tudo (posições, alocação, rentabilidade).
+--  - Cada membro OPERA livremente só na SUA carteira pessoal.
+--  - Carteiras pessoais são visíveis a todos (habilita o ranking).
+-- Tudo é forçado pela RLS abaixo — o frontend só reflete o que o banco garante.
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+-- wallets: catálogo de carteiras. Criação de carteira pessoal só via a RPC
+-- fork_carteira_pessoal (security definer); não há policy de escrita direta.
+-- ---------------------------------------------------------------------------
+create table if not exists public.wallets (
+  id       uuid primary key default gen_random_uuid(),
+  tipo     text not null check (tipo in ('liga','pessoal')),
+  dono     uuid references auth.users(id) on delete cascade,
+  nome     text not null,
+  criada_em timestamptz not null default now()
+);
+
+-- No máximo UMA carteira da liga; no máximo UMA carteira pessoal por dono.
+create unique index if not exists wallets_uma_liga  on public.wallets (tipo) where tipo = 'liga';
+create unique index if not exists wallets_dono_unico on public.wallets (dono) where tipo = 'pessoal';
+
+-- A carteira da liga tem id FIXO (referenciado pela migração e pelo default).
+insert into public.wallets (id, tipo, dono, nome)
+values ('00000000-0000-0000-0000-000000000001', 'liga', null, 'Carteira da Liga')
+on conflict (id) do nothing;
+
+alter table public.wallets enable row level security;
+
+drop policy if exists wallets_select on public.wallets;
+create policy wallets_select on public.wallets
+  for select to authenticated using (true);
+-- (sem policy de insert/update/delete => só a RPC fork_carteira_pessoal cria)
+
+-- ---------------------------------------------------------------------------
+-- membros: papel de cada usuário. Um usuário só se registra a si mesmo como
+-- 'membro'; a promoção para 'gestor'/'admin' é exclusiva de um 'admin'.
+-- ---------------------------------------------------------------------------
+create table if not exists public.membros (
+  user_id   uuid primary key references auth.users(id) on delete cascade,
+  nome      text not null,
+  papel     text not null default 'membro' check (papel in ('admin','gestor','membro')),
+  criado_em timestamptz not null default now()
+);
+
+alter table public.membros enable row level security;
+
+-- ---------------------------------------------------------------------------
+-- Funções de papel (SECURITY DEFINER: leem membros sem recursão de RLS e
+-- escondem a lógica). STABLE + search_path fixo por segurança. Definidas ANTES
+-- das policies que as referenciam (funções `sql` validam o corpo na criação,
+-- então wallets/membros já precisam existir aqui).
+-- ---------------------------------------------------------------------------
+create or replace function public.meu_papel()
+returns text language sql stable security definer set search_path = public as $$
+  select coalesce((select papel from public.membros where user_id = auth.uid()), 'membro');
+$$;
+
+create or replace function public.pode_gerir_liga()
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.meu_papel() in ('gestor','admin');
+$$;
+
+create or replace function public.eh_admin()
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.meu_papel() = 'admin';
+$$;
+
+-- Pode inserir na carteira cid? Liga => precisa ser gestor/admin; pessoal => ser o dono.
+create or replace function public.pode_operar_carteira(cid uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.wallets w
+    where w.id = cid
+      and ( (w.tipo = 'liga'    and public.pode_gerir_liga())
+         or (w.tipo = 'pessoal' and w.dono = auth.uid()) )
+  );
+$$;
+
+grant execute on function public.meu_papel()               to authenticated;
+grant execute on function public.pode_gerir_liga()         to authenticated;
+grant execute on function public.eh_admin()                to authenticated;
+grant execute on function public.pode_operar_carteira(uuid) to authenticated;
+
+-- Policies de membros (agora que eh_admin() já existe).
+drop policy if exists membros_select on public.membros;
+create policy membros_select on public.membros
+  for select to authenticated using (true);
+
+-- Auto-registro: só a própria linha e só como 'membro' (não dá para se autopromover).
+drop policy if exists membros_insert on public.membros;
+create policy membros_insert on public.membros
+  for insert to authenticated
+  with check (user_id = auth.uid() and papel = 'membro');
+
+-- Promoção/rebaixamento e edição de nome: só admin.
+drop policy if exists membros_update on public.membros;
+create policy membros_update on public.membros
+  for update to authenticated
+  using (public.eh_admin()) with check (public.eh_admin());
+
+-- ---------------------------------------------------------------------------
+-- transactions.carteira_id: a qual carteira cada operação pertence.
+-- Migração: tudo que já existe é da liga (id fixo). Depois vira NOT NULL com
+-- default = liga (compat com qualquer código que ainda não passe carteira_id).
+-- ---------------------------------------------------------------------------
+alter table public.transactions
+  add column if not exists carteira_id uuid references public.wallets(id);
+
+update public.transactions
+  set carteira_id = '00000000-0000-0000-0000-000000000001'
+  where carteira_id is null;
+
+alter table public.transactions
+  alter column carteira_id set default '00000000-0000-0000-0000-000000000001';
+alter table public.transactions
+  alter column carteira_id set not null;
+
+create index if not exists transactions_carteira_idx on public.transactions (carteira_id);
+
+-- CORAÇÃO DA PERMISSÃO: só insere se for dono da carteira pessoal OU gestor/admin
+-- na carteira da liga. (SELECT continua liberado para todos => ranking.)
+drop policy if exists transactions_insert on public.transactions;
+create policy transactions_insert on public.transactions
+  for insert to authenticated
+  with check (user_id = auth.uid() and public.pode_operar_carteira(carteira_id));
+
+-- ---------------------------------------------------------------------------
+-- RPC: criar a carteira pessoal como CÓPIA (fork) da carteira da liga no momento
+-- da ativação. Idempotente: se já existe, devolve o id. SECURITY DEFINER para
+-- criar a wallet e copiar o ledger da liga numa transação só.
+-- ---------------------------------------------------------------------------
+create or replace function public.fork_carteira_pessoal()
+returns uuid language plpgsql security definer set search_path = public as $$
+declare
+  v_uid  uuid := auth.uid();
+  v_wid  uuid;
+  v_nome text;
+begin
+  if v_uid is null then
+    raise exception 'não autenticado';
+  end if;
+
+  select id into v_wid from public.wallets where tipo = 'pessoal' and dono = v_uid;
+  if v_wid is not null then
+    return v_wid; -- já ativada
+  end if;
+
+  select nome into v_nome from public.membros where user_id = v_uid;
+
+  insert into public.wallets (tipo, dono, nome)
+  values ('pessoal', v_uid, coalesce(v_nome, 'Minha carteira'))
+  returning id into v_wid;
+
+  -- Fork: copia o ledger da liga como ponto de partida (ids novos por default).
+  insert into public.transactions
+    (ts, tipo, membro, ticker, qtd, preco, moeda, fx, taxa, valor, user_id, carteira_id)
+  select t.ts, t.tipo, t.membro, t.ticker, t.qtd, t.preco, t.moeda, t.fx, t.taxa, t.valor, v_uid, v_wid
+  from public.transactions t
+  join public.wallets w on w.id = t.carteira_id
+  where w.tipo = 'liga'
+  order by t.ts;
+
+  return v_wid;
+end;
+$$;
+
+grant execute on function public.fork_carteira_pessoal() to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Realtime para as novas tabelas (papéis e carteiras aparecem ao vivo).
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  t text;
+begin
+  foreach t in array array['wallets','membros'] loop
+    if not exists (
+      select 1 from pg_publication_tables
+      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t
+    ) then
+      execute format('alter publication supabase_realtime add table public.%I', t);
+    end if;
+  end loop;
+end $$;

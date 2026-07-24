@@ -39,17 +39,51 @@ GitHub Actions (cron)      ─service role─►  Postgres: upsert prices_latest
 - **Renda fixa:** Tesouro Direto marca pelo **PU oficial**; sem MtM, cresce **linearmente** do PU de
   compra até o valor de vencimento.
 
+## Papéis, permissões e carteiras
+
+O app tem **duas carteiras** por login e um **sistema de papéis** — tudo garantido pela RLS do banco
+(o frontend só reflete o que o Postgres já impõe):
+
+- **Carteira da Liga (central).** É a carteira compartilhada. **Todos** a veem em tempo real (posições,
+  alocação, rentabilidade), mas **só quem tem papel `gestor` ou `admin` pode operá-la** (comprar/vender).
+  O `admin` designa o gestor pela aba **Admin**.
+- **Carteira pessoal (paralela).** Cada membro pode ativar a sua em **Comparação → “Criar minha carteira
+  a partir da liga”**. Ela nasce como uma **cópia (fork) da carteira da liga naquele instante** e a partir
+  daí é **independente**: você opera livremente para divergir do que não concordar. As decisões futuras da
+  liga **não** entram sozinhas. Parte do **mesmo capital inicial fixo** (R$ 1.000.000) e da mesma data, então
+  o retorno é diretamente comparável.
+- **Comparação e ranking.** A aba **Comparação** mostra os indicadores lado a lado (patrimônio, retorno
+  total, P&L), a curva de **rentabilidade acumulada da sua carteira × a da liga** (com benchmarks opcionais)
+  e um **ranking** de todas as carteiras — as pessoais são visíveis a todos.
+
+**Papéis:** `membro` (vê a liga, opera só a própria carteira), `gestor` (opera a carteira da liga) e
+`admin` (gestor + gerencia os papéis dos demais).
+
+> **Integridade:** a permissão vive na RLS (`supabase/schema.sql`): a policy de INSERT em `transactions`
+> só aceita gravar se você for **dono** da carteira pessoal **ou** `gestor`/`admin` na carteira da liga. A
+> leitura continua liberada para todos (ranking), e o histórico segue **imutável** (sem UPDATE/DELETE).
+
 ## Setup (uma vez)
 
 ### 1. Supabase (banco + auth)
 1. Crie um projeto em [supabase.com](https://supabase.com).
 2. **SQL Editor → New query**, cole o conteúdo de [`supabase/schema.sql`](supabase/schema.sql) e rode.
-   Isso cria as tabelas, ativa a RLS, semeia a `config` (capital R$1M) e liga o Realtime.
+   Isso cria as tabelas (incluindo `wallets` e `membros`), ativa a RLS, semeia a `config` (capital R$1M) e
+   a carteira da liga, e liga o Realtime. O script é **idempotente** — pode rodar de novo com segurança.
 3. **Authentication → Providers → Email:** deixe habilitado. Em **Authentication → Sign In / Providers**
    (ou *Settings*), **desligue** "Allow new users to sign up" — o acesso é só por convite.
 4. **Convide os membros:** *Authentication → Users → Add user / Invite*. No convite/edição, defina o
    nome de exibição em `user_metadata` (`name`) — é o rótulo que aparece no histórico.
-5. Pegue as chaves em **Project Settings → API**: `Project URL`, `anon public` e `service_role`.
+5. **Defina o primeiro admin.** Cada membro vira `membro` automaticamente no 1º login; a promoção é só
+   por um `admin`. Para criar o primeiro, rode no **SQL Editor** (ignora a RLS), trocando o e-mail:
+   ```sql
+   insert into public.membros (user_id, nome, papel)
+   select id, coalesce(raw_user_meta_data->>'name', email), 'admin'
+   from auth.users where email = 'SEU-EMAIL@exemplo.com'
+   on conflict (user_id) do update set papel = 'admin';
+   ```
+   Depois, esse admin promove quem será **gestor** (quem opera a carteira da liga) pela aba **Admin** do app.
+6. Pegue as chaves em **Project Settings → API**: `Project URL`, `anon public` e `service_role`.
 
 ### 2. GitHub Pages + Actions
 1. **Settings → Pages → Source = GitHub Actions.**
@@ -74,6 +108,8 @@ Rode a seção `prices_history` do [`supabase/schema.sql`](supabase/schema.sql) 
 
 ## Uso
 
+- **Escolha a carteira** no seletor do topo: **Carteira da Liga** (central) ou **Minha carteira** (pessoal).
+  A aba **Operar** só aparece quando você pode operar aquela carteira — na liga, apenas para `gestor`/`admin`.
 - **Operar → Comprar ação/ETF/FII:** informe ticker, bolsa e quantidade. O preço oficial da B3 é
   cotado na hora; ativos em USD usam o último preço oficial de `prices_latest`. Um ticker ainda sem
   cotação é registrado para a Action precificar.
@@ -86,6 +122,10 @@ Rode a seção `prices_history` do [`supabase/schema.sql`](supabase/schema.sql) 
   período** (este mês, 3 meses, 12 meses ou personalizado), **retornos mês a mês** e comparação com
   **IBOV / S&P 500 / CDI / IPCA**. Mantém **Imprimir/PDF**, **baixar HTML** e **salvar snapshot** na
   nuvem (tabela `reports`).
+- **Comparação:** indicadores da **sua carteira × a da liga** (patrimônio, retorno, P&L), a curva de
+  rentabilidade sobreposta e o **ranking** de todas as carteiras. Se ainda não tiver carteira pessoal,
+  aqui você a **cria a partir da liga** (fork).
+- **Admin** (só para `admin`): promove/rebaixa papéis — em especial define o **gestor** da carteira da liga.
 
 ## Desenvolvimento local
 
@@ -106,11 +146,11 @@ SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... BRAPI_TOKEN=... npm run fetch-his
 ## Estrutura
 
 ```
-supabase/schema.sql        # tabelas + RLS + seed do config + realtime (rode no SQL Editor)
+supabase/schema.sql        # tabelas + RLS + seed + realtime + wallets/membros + papéis/fork (rode no SQL Editor)
 src/
-  engine/                  # motor puro e testado: ledger, fx, bonds, portfolio, report
-  data/                    # supabase (client), session (auth), supabaseClient (dados), precoProvider
-  ui/                      # dashboard React + Login (visão, operar, posições, alocação, relatório, histórico)
+  engine/                  # motor puro e testado: ledger, fx, bonds, portfolio, report, comparacao (ranking)
+  data/                    # supabase (client), session (auth), supabaseClient (dados/carteiras/papéis), precoProvider
+  ui/                      # dashboard React + Login (visão, operar, posições, alocação, relatório, histórico, comparação, admin)
 scripts/fetch-prices.ts    # busca preços oficiais e faz upsert em prices_latest (service role)
 scripts/fetch-history.ts   # série histórica (Brapi PRO + BCB) -> prices_history (evolução dos relatórios)
 .github/workflows/         # prices.yml (cron) e deploy.yml (GitHub Pages)

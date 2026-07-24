@@ -10,6 +10,7 @@ interface Props {
   ativos: Ativo[];
   precos: PrecosSnapshot;
   membro: string;
+  carteiraId: string;
   onDone: () => void;
 }
 
@@ -69,7 +70,7 @@ const ROTULO_CLASSE: Record<ClasseAtivo, string> = {
   bond: "Título",
 };
 
-function ComprarAcao({ snapshot, precos, membro, onDone }: Props) {
+function ComprarAcao({ snapshot, precos, membro, carteiraId, onDone }: Props) {
   const [ticker, setTicker] = useState("");
   const [precoPago, setPrecoPago] = useState("");
   const [nome, setNome] = useState("");
@@ -144,7 +145,7 @@ function ComprarAcao({ snapshot, precos, membro, onDone }: Props) {
         moeda: info.moeda,
         fx,
       };
-      await registrarTransacao(tx);
+      await registrarTransacao(tx, carteiraId);
       setMsg(
         `Compra registrada: ${q} ${tk} (${ROTULO_CLASSE[info.tipo]}) a ${fmtNum(preco, 2)} ${info.moeda}` +
           `${info.moeda !== "BRL" ? ` (dólar ${fmtNum(fx, 4)})` : ""} = ${fmtBRL(custoBRL)}.`,
@@ -209,7 +210,7 @@ function ComprarAcao({ snapshot, precos, membro, onDone }: Props) {
   );
 }
 
-function Vender({ snapshot, precos, membro, onDone }: Props) {
+function Vender({ snapshot, precos, membro, carteiraId, onDone }: Props) {
   const posicoes = snapshot.posicoes.filter((p) => p.qtd > 0);
   const [ticker, setTicker] = useState(posicoes[0]?.ticker ?? "");
   const [qtd, setQtd] = useState("");
@@ -248,7 +249,7 @@ function Vender({ snapshot, precos, membro, onDone }: Props) {
         fx = moeda === "BRL" ? 1 : await cotacaoDolar();
       }
       const tx: TxTrade = { id: uuid(), ts: new Date().toISOString(), tipo: "venda", membro, ticker, qtd: q, preco, moeda, fx };
-      await registrarTransacao(tx);
+      await registrarTransacao(tx, carteiraId);
       const receita = q * preco * fx;
       setMsg(`Venda registrada: ${q} ${ticker} a ${fmtNum(preco, 2)} ${moeda} = ${fmtBRL(receita)}.`);
       setQtd("");
@@ -297,7 +298,7 @@ function Vender({ snapshot, precos, membro, onDone }: Props) {
   );
 }
 
-function RendaFixa({ snapshot, precos, membro, onDone }: Props) {
+function RendaFixa({ snapshot, precos, membro, carteiraId, onDone }: Props) {
   const nomesTesouro = useMemo(() => Object.keys(precos.tesouro ?? {}), [precos]);
   const [isTesouro, setIsTesouro] = useState(true);
   const [ticker, setTicker] = useState("");
@@ -358,7 +359,7 @@ function RendaFixa({ snapshot, precos, membro, onDone }: Props) {
       };
       await upsertAtivo(ativo);
       const tx: TxTrade = { id: uuid(), ts: new Date().toISOString(), tipo: "compra", membro, ticker: tk, qtd: q, preco: pu, moeda: "BRL", fx: 1 };
-      await registrarTransacao(tx);
+      await registrarTransacao(tx, carteiraId);
       setMsg(`Compra registrada: ${q} × ${tk} a PU ${fmtNum(pu, 2)} = ${fmtBRL(custoBRL)}.`);
       setQtd("");
       onDone();
