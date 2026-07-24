@@ -7,7 +7,7 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: precos
@@ -26,17 +26,8 @@ jobs:
       - name: Instalar dependências
         run: npm ci
 
-      - name: Buscar preços oficiais
+      - name: Buscar preços oficiais e gravar no Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: npm run fetch-prices
-
-      - name: Commitar snapshot
-        run: |
-          git config user.name "carteira-bot"
-          git config user.email "bot@carteirafinance.local"
-          if ! git diff --quiet -- data/prices/latest.json; then
-            git add data/prices/latest.json
-            git commit -m "precos: snapshot automatico $(date -u +%FT%TZ)"
-            git push
-          else
-            echo "Sem mudanças de preço."
-          fi

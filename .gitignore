@@ -5,9 +5,10 @@ node_modules/
 dist/
 *.tsbuildinfo
 
-# env / secrets — NUNCA commitar tokens
+# env / secrets — NUNCA commitar chaves/tokens
 .env
 .env.*
+!.env.example
 *.local
 
 # editor / os

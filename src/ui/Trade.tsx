@@ -1,11 +1,10 @@
 import { useMemo, useState } from "react";
 import { fmtBRL, fmtNum } from "../engine/report";
 import type { Ativo, PortfolioSnapshot, PrecosSnapshot, TxTrade } from "../engine/types";
-import type { GitHubClient } from "../data/githubClient";
+import { registrarTransacao, upsertAtivo } from "../data/supabaseClient";
 import { cotacaoDolar, precoAcaoBR } from "../data/precoProvider";
 
 interface Props {
-  client: GitHubClient;
   snapshot: PortfolioSnapshot;
   ativos: Ativo[];
   precos: PrecosSnapshot;
@@ -60,7 +59,7 @@ async function precoOperacao(tk: string, moeda: string, precos: PrecosSnapshot):
   return typeof s === "number" && s > 0 ? s : null;
 }
 
-function ComprarAcao({ client, snapshot, precos, membro, onDone }: Props) {
+function ComprarAcao({ snapshot, precos, membro, onDone }: Props) {
   const [ticker, setTicker] = useState("");
   const [bolsa, setBolsa] = useState("B3");
   const [classe, setClasse] = useState("acao");
@@ -85,7 +84,7 @@ function ComprarAcao({ client, snapshot, precos, membro, onDone }: Props) {
       const preco = await precoOperacao(tk, moeda, precos);
       if (preco == null) {
         // Sem cotação oficial ainda: registra o ativo para a Action precificar.
-        await client.upsertAtivo(ativo);
+        await upsertAtivo(ativo);
         setMsg(
           `Sem cotação oficial de ${tk} ainda. Ativo registrado — rode a Action “Atualizar preços” (ou aguarde o próximo ciclo) e finalize a compra depois.`,
         );
@@ -97,9 +96,9 @@ function ComprarAcao({ client, snapshot, precos, membro, onDone }: Props) {
         setMsg(`Caixa insuficiente: custo ${fmtBRL(custoBRL)} > caixa ${fmtBRL(snapshot.caixaBRL)}.`);
         return;
       }
-      await client.upsertAtivo(ativo);
+      await upsertAtivo(ativo);
       const tx: TxTrade = { id: uuid(), ts: new Date().toISOString(), tipo: "compra", membro, ticker: tk, qtd: q, preco, moeda, fx };
-      await client.appendTransacao(tx);
+      await registrarTransacao(tx);
       setMsg(
         `Compra registrada: ${q} ${tk} a ${fmtNum(preco, 2)} ${moeda}${moeda !== "BRL" ? ` (dólar ${fmtNum(fx, 4)})` : ""} = ${fmtBRL(custoBRL)}.`,
       );
@@ -161,7 +160,7 @@ function ComprarAcao({ client, snapshot, precos, membro, onDone }: Props) {
   );
 }
 
-function Vender({ client, snapshot, precos, membro, onDone }: Props) {
+function Vender({ snapshot, precos, membro, onDone }: Props) {
   const posicoes = snapshot.posicoes.filter((p) => p.qtd > 0);
   const [ticker, setTicker] = useState(posicoes[0]?.ticker ?? "");
   const [qtd, setQtd] = useState("");
@@ -200,7 +199,7 @@ function Vender({ client, snapshot, precos, membro, onDone }: Props) {
         fx = moeda === "BRL" ? 1 : await cotacaoDolar();
       }
       const tx: TxTrade = { id: uuid(), ts: new Date().toISOString(), tipo: "venda", membro, ticker, qtd: q, preco, moeda, fx };
-      await client.appendTransacao(tx);
+      await registrarTransacao(tx);
       const receita = q * preco * fx;
       setMsg(`Venda registrada: ${q} ${ticker} a ${fmtNum(preco, 2)} ${moeda} = ${fmtBRL(receita)}.`);
       setQtd("");
@@ -249,7 +248,7 @@ function Vender({ client, snapshot, precos, membro, onDone }: Props) {
   );
 }
 
-function RendaFixa({ client, snapshot, precos, membro, onDone }: Props) {
+function RendaFixa({ snapshot, precos, membro, onDone }: Props) {
   const nomesTesouro = useMemo(() => Object.keys(precos.tesouro ?? {}), [precos]);
   const [isTesouro, setIsTesouro] = useState(true);
   const [ticker, setTicker] = useState("");
@@ -308,9 +307,9 @@ function RendaFixa({ client, snapshot, precos, membro, onDone }: Props) {
           valorVencimento: vv,
         },
       };
-      await client.upsertAtivo(ativo);
+      await upsertAtivo(ativo);
       const tx: TxTrade = { id: uuid(), ts: new Date().toISOString(), tipo: "compra", membro, ticker: tk, qtd: q, preco: pu, moeda: "BRL", fx: 1 };
-      await client.appendTransacao(tx);
+      await registrarTransacao(tx);
       setMsg(`Compra registrada: ${q} × ${tk} a PU ${fmtNum(pu, 2)} = ${fmtBRL(custoBRL)}.`);
       setQtd("");
       onDone();

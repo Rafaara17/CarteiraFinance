@@ -1,17 +1,17 @@
 import { useState } from "react";
 import { fmtBRL, fmtPct, renderReportHtml } from "../engine/report";
 import type { Config, PortfolioSnapshot } from "../engine/types";
-import type { GitHubClient } from "../data/githubClient";
+import { salvarRelatorio } from "../data/supabaseClient";
 import { Positions } from "./Positions";
 
 interface Props {
   config: Config;
   snapshot: PortfolioSnapshot;
   precoAtualizadoEm: string | null;
-  client: GitHubClient;
+  membro: string;
 }
 
-export function Report({ config, snapshot, precoAtualizadoEm, client }: Props) {
+export function Report({ config, snapshot, precoAtualizadoEm, membro }: Props) {
   const [status, setStatus] = useState<string | null>(null);
 
   const html = () => renderReportHtml(config, snapshot, precoAtualizadoEm);
@@ -27,11 +27,10 @@ export function Report({ config, snapshot, precoAtualizadoEm, client }: Props) {
   };
 
   const commitarSnapshot = async () => {
-    setStatus("Salvando snapshot no repositório...");
+    setStatus("Salvando snapshot na nuvem...");
     try {
-      const path = `reports/relatorio-${new Date().toISOString().replace(/[:.]/g, "-")}.html`;
-      await client.gravarArquivo(path, html(), `relatorio: snapshot da carteira`);
-      setStatus(`Snapshot salvo em ${path}`);
+      await salvarRelatorio(html(), membro);
+      setStatus("Snapshot salvo na nuvem (tabela reports).");
     } catch (e) {
       setStatus(e instanceof Error ? e.message : String(e));
     }
@@ -49,7 +48,7 @@ export function Report({ config, snapshot, precoAtualizadoEm, client }: Props) {
           <button className="secundario" onClick={baixar}>
             Baixar HTML
           </button>
-          <button onClick={commitarSnapshot}>Salvar snapshot no repo</button>
+          <button onClick={commitarSnapshot}>Salvar snapshot na nuvem</button>
         </div>
         {status && (
           <p className="muted" style={{ marginBottom: 0 }}>

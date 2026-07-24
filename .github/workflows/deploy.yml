@@ -3,8 +3,6 @@ name: Deploy GitHub Pages
 on:
   push:
     branches: ["main"]
-    paths-ignore:
-      - "data/prices/**" # snapshots de preço não precisam rebuildar o site
   workflow_dispatch: {}
 
 permissions:
@@ -28,6 +26,9 @@ jobs:
       - name: Build
         env:
           BASE_PATH: "/${{ github.event.repository.name }}/"
+          # URL + chave ANON do Supabase (a anon é pública; a segurança é a RLS).
+          VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:

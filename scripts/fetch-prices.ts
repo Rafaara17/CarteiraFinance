@@ -1,41 +1,48 @@
 /**
- * Busca preços/câmbio OFICIAIS (server-side, sem CORS) e grava
- * data/prices/latest.json. Rodado pela GitHub Action (dias úteis).
+ * Busca preços/câmbio OFICIAIS (server-side, sem CORS) e faz UPSERT na tabela
+ * `prices_latest` do Supabase. Rodado pela GitHub Action (dias úteis).
+ *
+ * Lê a lista de ativos a precificar direto do banco (tabela `assets`) e escreve
+ * o snapshot usando a SERVICE ROLE KEY (ignora RLS) — por isso "preços sempre
+ * oficiais": nenhum usuário comum consegue escrever em prices_latest.
+ *
+ * Env necessárias (secrets da Action):
+ *   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
  *
  * Fontes (todas SEM chave de API):
  *  - Ações (B3, NYSE, NASDAQ): Yahoo Finance (B3 usa sufixo ".SA")
  *  - Câmbio USD/BRL:           AwesomeAPI (cotação real momentânea)
  *  - Tesouro Direto:           API oficial do Tesouro Direto (PU de resgate)
- *
- * Cada fonte é isolada em try/catch: uma falha não derruba as demais.
  */
-import { readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { createClient } from "@supabase/supabase-js";
 
 interface AtivoLite {
   ticker: string;
   tipo: string;
   bolsa: string;
   moeda: string;
-  bond?: { isTesouro?: boolean; tesouroNome?: string };
+  bond?: { isTesouro?: boolean; tesouroNome?: string } | null;
 }
 
 interface Snapshot {
-  atualizadoEm: string;
+  atualizado_em: string;
   fonte: string;
   cambio: Record<string, number>;
   acoes: Record<string, number>;
   tesouro: Record<string, number>;
 }
 
-const RAIZ = resolve(process.cwd());
-const ASSETS = resolve(RAIZ, "data/assets.json");
-const SAIDA = resolve(RAIZ, "data/prices/latest.json");
-
 async function main() {
-  const ativos: AtivoLite[] = JSON.parse(readFileSync(ASSETS, "utf8"));
+  const url = requireEnv("SUPABASE_URL");
+  const serviceKey = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+  const db = createClient(url, serviceKey, { auth: { persistSession: false } });
+
+  const { data: ativos, error } = await db.from("assets").select("ticker,tipo,bolsa,moeda,bond");
+  if (error) throw new Error(`Falha ao ler assets: ${error.message}`);
+  const lista = (ativos ?? []) as AtivoLite[];
+
   const snap: Snapshot = {
-    atualizadoEm: new Date().toISOString(),
+    atualizado_em: new Date().toISOString(),
     fonte: "yahoo finance + awesomeapi + tesouro direto",
     cambio: { BRL: 1 },
     acoes: {},
@@ -51,7 +58,7 @@ async function main() {
   }
 
   // --- Ações (Yahoo Finance, sem chave; B3 usa sufixo .SA) ---
-  const acoes = ativos.filter((a) => ehAcao(a.tipo));
+  const acoes = lista.filter((a) => ehAcao(a.tipo));
   for (const a of acoes) {
     const ehBR = a.bolsa === "B3" || a.moeda === "BRL";
     const symbol = ehBR ? `${a.ticker}.SA` : a.ticker;
@@ -64,11 +71,13 @@ async function main() {
   }
 
   // --- Tesouro Direto (PU oficial de resgate) ---
-  const querTesouro = ativos.some((a) => a.bond?.isTesouro);
+  const querTesouro = lista.some((a) => a.bond?.isTesouro);
   if (querTesouro) {
     try {
       const pus = await tesouroDireto();
-      const nomes = new Set(ativos.filter((a) => a.bond?.isTesouro && a.bond.tesouroNome).map((a) => a.bond!.tesouroNome!));
+      const nomes = new Set(
+        lista.filter((a) => a.bond?.isTesouro && a.bond.tesouroNome).map((a) => a.bond!.tesouroNome!),
+      );
       for (const [nome, pu] of Object.entries(pus)) {
         if (nomes.size === 0 || nomes.has(nome)) snap.tesouro[nome] = pu;
       }
@@ -78,8 +87,15 @@ async function main() {
     }
   }
 
-  writeFileSync(SAIDA, JSON.stringify(snap, null, 2) + "\n");
-  console.log(`Snapshot gravado em ${SAIDA}`);
+  const { error: upErr } = await db.from("prices_latest").upsert({ id: 1, ...snap }, { onConflict: "id" });
+  if (upErr) throw new Error(`Falha ao gravar prices_latest: ${upErr.message}`);
+  console.log("Snapshot gravado em prices_latest (id=1).");
+}
+
+function requireEnv(nome: string): string {
+  const v = process.env[nome];
+  if (!v) throw new Error(`Variável de ambiente ausente: ${nome}`);
+  return v;
 }
 
 function ehAcao(tipo: string): boolean {

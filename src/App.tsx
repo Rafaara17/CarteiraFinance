@@ -1,9 +1,9 @@
-import { useMemo, useState } from "react";
-import { GitHubClient } from "./data/githubClient";
-import { carregarSettings, salvarSettings, settingsCompletas, type Settings } from "./data/settings";
+import { useEffect, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
+import { getSession, membroAtual, onAuthChange, signOut } from "./data/session";
 import { Allocation } from "./ui/Allocation";
 import { History } from "./ui/History";
-import { Onboarding } from "./ui/Onboarding";
+import { Login } from "./ui/Login";
 import { Overview } from "./ui/Overview";
 import { Positions } from "./ui/Positions";
 import { Report } from "./ui/Report";
@@ -22,25 +22,39 @@ const ABAS: Array<{ id: Aba; rotulo: string }> = [
 ];
 
 export function App() {
-  const [settings, setSettings] = useState<Settings>(() => carregarSettings());
+  const [session, setSession] = useState<Session | null>(null);
+  const [carregandoSessao, setCarregandoSessao] = useState(true);
   const [aba, setAba] = useState<Aba>("visao");
 
-  const pronto = settingsCompletas(settings);
-  const client = useMemo(() => (pronto ? new GitHubClient(settings) : null), [settings, pronto]);
-  const dados = useLeagueData(client);
+  // Sessão inicial + assinatura de mudanças de autenticação (login/logout).
+  useEffect(() => {
+    let vivo = true;
+    getSession().then((s) => {
+      if (!vivo) return;
+      setSession(s);
+      setCarregandoSessao(false);
+    });
+    const off = onAuthChange((s) => setSession(s));
+    return () => {
+      vivo = false;
+      off();
+    };
+  }, []);
 
-  if (!pronto) {
+  const logado = Boolean(session);
+  const dados = useLeagueData(logado);
+
+  if (carregandoSessao) {
     return (
-      <Onboarding
-        inicial={settings}
-        onSalvar={(s) => {
-          salvarSettings(s);
-          setSettings(s);
-        }}
-      />
+      <div className="container">
+        <div className="card" style={{ maxWidth: 420, margin: "3rem auto" }}>Carregando...</div>
+      </div>
     );
   }
 
+  if (!logado) return <Login />;
+
+  const membro = membroAtual(session);
   const nomeLiga = dados.config?.nomeLiga ?? "Carteira da Liga";
 
   return (
@@ -48,19 +62,19 @@ export function App() {
       <header className="topbar no-print">
         <div className="container">
           <h1>{nomeLiga}</h1>
-          <span className="muted">· {settings.membro}</span>
+          <span className="muted">· {membro}</span>
           <div className="spacer" />
-          <button className="secundario" style={{ color: "#fff", borderColor: "rgba(255,255,255,.4)" }} onClick={dados.recarregar}>
+          <button
+            className="secundario"
+            style={{ color: "#fff", borderColor: "rgba(255,255,255,.4)" }}
+            onClick={dados.recarregar}
+          >
             {dados.carregando ? "Atualizando..." : "Atualizar"}
           </button>
           <button
             className="secundario"
             style={{ color: "#fff", borderColor: "rgba(255,255,255,.4)" }}
-            onClick={() => {
-              const s = { ...settings, token: "" };
-              salvarSettings(s);
-              setSettings(s);
-            }}
+            onClick={() => void signOut()}
           >
             Sair
           </button>
@@ -68,7 +82,11 @@ export function App() {
       </header>
 
       <div className="container">
-        {dados.erro && <div className="alerta" style={{ marginTop: "1rem" }}>Erro: {dados.erro}</div>}
+        {dados.erro && (
+          <div className="alerta" style={{ marginTop: "1rem" }}>
+            Erro: {dados.erro}
+          </div>
+        )}
 
         <div className="tabs no-print">
           {ABAS.map((a) => (
@@ -89,24 +107,23 @@ export function App() {
                 precoAtualizadoEm={dados.precos.atualizadoEm}
               />
             )}
-            {aba === "operar" && client && (
+            {aba === "operar" && (
               <Trade
-                client={client}
                 snapshot={dados.snapshot}
                 ativos={dados.ativos}
                 precos={dados.precos}
-                membro={settings.membro}
+                membro={membro}
                 onDone={dados.recarregar}
               />
             )}
             {aba === "posicoes" && <Positions snapshot={dados.snapshot} />}
             {aba === "alocacao" && <Allocation snapshot={dados.snapshot} />}
-            {aba === "relatorio" && client && (
+            {aba === "relatorio" && (
               <Report
                 config={dados.config}
                 snapshot={dados.snapshot}
                 precoAtualizadoEm={dados.precos.atualizadoEm}
-                client={client}
+                membro={membro}
               />
             )}
             {aba === "historico" && <History transacoes={dados.transacoes} />}
@@ -114,8 +131,8 @@ export function App() {
         )}
 
         <p className="muted" style={{ fontSize: "0.75rem", marginTop: "2rem" }}>
-          Dados sincronizados via Git (repositório = banco de dados). Capital inicial fixo e imutável;
-          preços oficiais. Sempre que você abre ou volta o foco, os dados são recarregados no último estado.
+          Dados sincronizados na nuvem (Supabase) com acesso por login. Capital inicial fixo e imutável;
+          preços oficiais. As alterações aparecem em todas as máquinas em tempo real.
         </p>
       </div>
     </>

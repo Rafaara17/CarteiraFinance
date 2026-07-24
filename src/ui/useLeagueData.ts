@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { computarPortfolio } from "../engine/portfolio";
-import { parseLedger } from "../engine/ledger";
 import type { Ativo, Config, PortfolioSnapshot, PrecosSnapshot, Transacao } from "../engine/types";
-import { GitHubClient, type UltimaAtualizacao } from "../data/githubClient";
+import { assinarRealtime, carregarDados, type UltimaAtualizacao } from "../data/supabaseClient";
 
 export interface DadosLiga {
   config: Config | null;
@@ -16,21 +15,13 @@ export interface DadosLiga {
   recarregar: () => void;
 }
 
-const CONFIG_PADRAO: Config = {
-  nomeLiga: "Carteira da Liga",
-  capitalInicial: 1_000_000,
-  moedaBase: "BRL",
-  dataInicio: "2026-01-01",
-};
-
-const PRECOS_PADRAO: PrecosSnapshot = { atualizadoEm: null, cambio: { USD: 1 }, acoes: {}, tesouro: {} };
-
 /**
- * Carrega config/ativos/ledger/preços do repositório (sempre no HEAD),
- * computa o snapshot da carteira e expõe uma função de recarregar.
- * Recarrega ao focar a janela — garante "o último momento de alteração".
+ * Carrega config/ativos/ledger/preços do Supabase, computa o snapshot da
+ * carteira e mantém tudo sincronizado: recarrega ao focar a janela e, via
+ * Realtime, sempre que qualquer máquina altera transações/ativos/preços.
+ * Só carrega quando `logado` é true (a RLS exige autenticação).
  */
-export function useLeagueData(client: GitHubClient | null): DadosLiga {
+export function useLeagueData(logado: boolean): DadosLiga {
   const [config, setConfig] = useState<Config | null>(null);
   const [ativos, setAtivos] = useState<Ativo[]>([]);
   const [transacoes, setTransacoes] = useState<Transacao[]>([]);
@@ -44,29 +35,26 @@ export function useLeagueData(client: GitHubClient | null): DadosLiga {
   const recarregar = useCallback(() => setNonce((n) => n + 1), []);
 
   useEffect(() => {
-    if (!client) return;
+    if (!logado) {
+      setConfig(null);
+      setSnapshot(null);
+      return;
+    }
     let cancelado = false;
     setCarregando(true);
     setErro(null);
 
     (async () => {
       try {
-        const [cfg, ats, ledger, prc, ult] = await Promise.all([
-          client.lerJson<Config>("data/config.json", CONFIG_PADRAO),
-          client.lerJson<Ativo[]>("data/assets.json", []),
-          client.lerArquivo("data/ledger.jsonl"),
-          client.lerJson<PrecosSnapshot>("data/prices/latest.json", PRECOS_PADRAO),
-          client.ultimaAtualizacao(),
-        ]);
+        const d = await carregarDados();
         if (cancelado) return;
-        const txs = parseLedger(ledger?.conteudo ?? "");
-        const snap = computarPortfolio(cfg, txs, ats, prc);
-        setConfig(cfg);
-        setAtivos(ats);
-        setTransacoes(txs);
-        setPrecos(prc);
+        const snap = computarPortfolio(d.config, d.transacoes, d.ativos, d.precos);
+        setConfig(d.config);
+        setAtivos(d.ativos);
+        setTransacoes(d.transacoes);
+        setPrecos(d.precos);
         setSnapshot(snap);
-        setUltima(ult);
+        setUltima(d.ultimaAtualizacao);
       } catch (e) {
         if (!cancelado) setErro(e instanceof Error ? e.message : String(e));
       } finally {
@@ -77,14 +65,30 @@ export function useLeagueData(client: GitHubClient | null): DadosLiga {
     return () => {
       cancelado = true;
     };
-  }, [client, nonce]);
+  }, [logado, nonce]);
+
+  // Realtime: qualquer mudança no banco dispara um recarregar (com debounce
+  // curto para agrupar rajadas de eventos). Só ativo enquanto logado.
+  const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!logado) return;
+    const off = assinarRealtime(() => {
+      if (debounce.current) clearTimeout(debounce.current);
+      debounce.current = setTimeout(recarregar, 400);
+    });
+    return () => {
+      if (debounce.current) clearTimeout(debounce.current);
+      off();
+    };
+  }, [logado, recarregar]);
 
   // Sempre o último dado: recarrega ao voltar o foco para a aba.
   useEffect(() => {
+    if (!logado) return;
     const onFocus = () => recarregar();
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [recarregar]);
+  }, [logado, recarregar]);
 
   return { config, ativos, transacoes, precos, snapshot, ultimaAtualizacao, carregando, erro, recarregar };
 }

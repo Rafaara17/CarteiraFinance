@@ -1,6 +1,6 @@
 import { fmtBRL, fmtNum, fmtPct } from "../engine/report";
 import type { PortfolioSnapshot } from "../engine/types";
-import type { UltimaAtualizacao } from "../data/githubClient";
+import type { UltimaAtualizacao } from "../data/supabaseClient";
 
 interface Props {
   snapshot: PortfolioSnapshot;
