@@ -87,6 +87,23 @@ export interface PrecosSnapshot {
   tesouro: Record<string, number>;
 }
 
+/**
+ * Um dia da SÉRIE HISTÓRICA (tabela prices_history), usado para reconstruir a
+ * evolução do patrimônio e a rentabilidade por período nos relatórios.
+ */
+export interface PontoHistorico {
+  data: string; // "AAAA-MM-DD"
+  /** preço de fechamento por ticker, na moeda do ativo. */
+  acoes: Record<string, number>;
+  /** câmbio moeda->BRL no dia (ex.: { USD: 5.43 }). */
+  cambio: Record<string, number>;
+  /** nível acumulado de índices de mercado/juros (IBOV, SP500, CDI, IPCA). */
+  indices: Record<string, number>;
+}
+
+/** Série histórica completa, ordenada por data (ascendente). */
+export type HistoricoPrecos = PontoHistorico[];
+
 /** Posição calculada (após replay + marcação). */
 export interface Posicao {
   ticker: string;

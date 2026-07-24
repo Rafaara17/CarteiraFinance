@@ -317,6 +317,64 @@ tbody tr:last-child td { border-bottom: none; }
 }
 .rodape strong { font-family: var(--fonte-titulo); color: var(--cor-primaria); font-weight: 700; }
 
+/* ---------- relatório: período, benchmarks e gráficos ---------- */
+.controles { display: flex; flex-direction: column; gap: 0.9rem; }
+.controles__linha { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem 0.9rem; }
+.controles__rotulo {
+  font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em;
+  font-weight: 700; color: var(--texto-fraco);
+}
+
+.segmented {
+  display: inline-flex; flex-wrap: wrap; gap: 2px;
+  background: var(--superficie-2); border: 1px solid var(--borda);
+  border-radius: 999px; padding: 3px;
+}
+.segmented button {
+  background: transparent; color: var(--texto-fraco); border: none;
+  padding: 0.42rem 0.95rem; border-radius: 999px; font-size: 0.85rem; font-weight: 600;
+}
+.segmented button:hover { background: transparent; color: var(--texto); }
+.segmented button.ativo {
+  background: var(--cor-primaria); color: #fff;
+  box-shadow: 0 1px 5px rgba(23, 65, 107, 0.3);
+}
+
+.chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.chip-toggle {
+  display: inline-flex; align-items: center; gap: 0.45rem;
+  background: var(--superficie); color: var(--texto-fraco);
+  border: 1px solid var(--borda-forte); padding: 0.35rem 0.8rem;
+  border-radius: 999px; font-size: 0.82rem; font-weight: 600;
+}
+.chip-toggle:hover { color: var(--texto); border-color: var(--cor-primaria); }
+.chip-toggle.ativo { color: var(--texto); background: var(--superficie-2); border-color: var(--borda-forte); }
+.chip-toggle .ponto { width: 11px; height: 11px; border-radius: 50%; flex: none; opacity: 0.35; }
+.chip-toggle.ativo .ponto { opacity: 1; }
+
+.datas-custom { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: end; }
+.datas-custom .campo { margin-bottom: 0; }
+.datas-custom input { width: auto; }
+
+.grafico-cab { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem; margin-bottom: 0.85rem; }
+.grafico-cab h3 { margin: 0; }
+.grafico-cab .muted { font-size: 0.8rem; }
+.grafico-caixa { width: 100%; }
+
+.comparativo { display: flex; flex-wrap: wrap; gap: 0.55rem; }
+.pill {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  border: 1px solid var(--borda); border-radius: 999px;
+  padding: 0.4rem 0.85rem; background: var(--superficie); font-size: 0.85rem;
+}
+.pill .ponto { width: 11px; height: 11px; border-radius: 50%; flex: none; }
+.pill .rot { color: var(--texto-fraco); font-weight: 600; }
+.pill b { font-variant-numeric: tabular-nums; }
+
+.kpi .extra { font-size: 0.76rem; color: var(--texto-fraco); margin-top: 0.2rem; font-variant-numeric: tabular-nums; }
+.kpi .extra.pos { color: var(--pos); }
+.kpi .extra.neg { color: var(--neg); }
+
 @media print {
   .no-print { display: none !important; }
   body { background: #fff; }

@@ -39,3 +39,11 @@ jobs:
           # Corte de ativação: só credita proventos com data-ex a partir desta data.
           PROVENTOS_DESDE: "2026-07-24"
         run: npm run fetch-dividends
+
+      - name: Gravar série histórica (evolução dos relatórios) no Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Token Brapi PRO — SECRETO, só no servidor (nunca vai para o site).
+          BRAPI_TOKEN: ${{ secrets.BRAPI_TOKEN }}
+        run: npm run fetch-history

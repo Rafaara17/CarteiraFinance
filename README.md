@@ -17,6 +17,7 @@ Navegador (GitHub Pages, SPA React)
   ├─ lê/escreve dados      ─────────►  Postgres + RLS  (config, assets, transactions, prices_latest, reports)
   └─ assina mudanças       ◄─────────  Supabase Realtime (atualiza todas as máquinas em segundos)
 GitHub Actions (cron)      ─service role─►  Postgres: upsert prices_latest (preços oficiais)
+                           ─service role─►  Postgres: upsert prices_history (série p/ evolução)
 ```
 
 - **Banco na nuvem.** Os dados vivem no Postgres do Supabase. Abrir o app (autenticado) lê o estado
@@ -56,10 +57,20 @@ GitHub Actions (cron)      ─service role─►  Postgres: upsert prices_latest
    - `SUPABASE_URL` = a Project URL
    - `SUPABASE_ANON_KEY` = a chave `anon public` (usada no build do site)
    - `SUPABASE_SERVICE_ROLE_KEY` = a chave `service_role` (usada só pela Action de preços)
+   - `BRAPI_TOKEN` = seu token **Brapi PRO** (usado só pela Action, para a série histórica)
 3. Push no branch `main` publica o site; o cron de preços roda dias úteis, de hora em hora.
 
-> A `service_role` key é **secreta** e só existe nos secrets da Action — nunca vai para o frontend.
-> A `anon` key é pública de propósito (vai embutida no site); a proteção real é a RLS do banco.
+> A `service_role` key e o `BRAPI_TOKEN` são **secretos** e só existem nos secrets da Action —
+> nunca vão para o frontend. A `anon` key é pública de propósito (vai embutida no site); a proteção
+> real é a RLS do banco.
+
+### 3. Série histórica (evolução dos relatórios)
+A aba **Relatório** mostra a **evolução do patrimônio** e a **rentabilidade por período** (este mês, 3
+meses, 12 meses ou intervalo personalizado), com comparação opcional a **IBOV, S&P 500, CDI e IPCA**.
+Isso é reconstruído a partir da tabela `prices_history`, preenchida pela Action com o histórico diário
+(≈1 ano) da **Brapi PRO** (ações e índices), do câmbio (AwesomeAPI) e do **Banco Central** (CDI/IPCA).
+Rode a seção `prices_history` do [`supabase/schema.sql`](supabase/schema.sql) uma vez e garanta o secret
+`BRAPI_TOKEN`. Enquanto a Action não roda a primeira vez, a aba mostra um aviso amigável.
 
 ## Uso
 
@@ -71,7 +82,9 @@ GitHub Actions (cron)      ─service role─►  Postgres: upsert prices_latest
 - **Operar → Vender:** escolhe a posição e a quantidade; cota e registra a venda.
 - **Posições / Alocação:** carteira marcada a mercado, consolidada em BRL, com quebras por classe,
   bolsa e moeda.
-- **Relatório:** visão consolidada, com **Imprimir/PDF**, **baixar HTML** ou **salvar snapshot** na
+- **Relatório:** painel de análise com **gráfico de evolução** do patrimônio, **rentabilidade por
+  período** (este mês, 3 meses, 12 meses ou personalizado), **retornos mês a mês** e comparação com
+  **IBOV / S&P 500 / CDI / IPCA**. Mantém **Imprimir/PDF**, **baixar HTML** e **salvar snapshot** na
   nuvem (tabela `reports`).
 
 ## Desenvolvimento local
@@ -85,6 +98,9 @@ npm run build          # typecheck + build de produção
 
 # Rodar o buscador de preços localmente (o que a Action executa):
 SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... npm run fetch-prices
+
+# Gravar a série histórica (evolução dos relatórios) — precisa do token Brapi PRO:
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... BRAPI_TOKEN=... npm run fetch-history
 ```
 
 ## Estrutura
@@ -96,6 +112,7 @@ src/
   data/                    # supabase (client), session (auth), supabaseClient (dados), precoProvider
   ui/                      # dashboard React + Login (visão, operar, posições, alocação, relatório, histórico)
 scripts/fetch-prices.ts    # busca preços oficiais e faz upsert em prices_latest (service role)
+scripts/fetch-history.ts   # série histórica (Brapi PRO + BCB) -> prices_history (evolução dos relatórios)
 .github/workflows/         # prices.yml (cron) e deploy.yml (GitHub Pages)
 .env.example               # modelo das variáveis do frontend (VITE_SUPABASE_*)
 ```

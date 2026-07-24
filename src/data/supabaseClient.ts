@@ -5,7 +5,16 @@
 //
 // Atenção: o PostgREST devolve colunas `numeric` como STRING (preserva precisão),
 // então todo campo numérico é normalizado com num()/numOpt() ao mapear.
-import type { Ativo, Config, PrecosSnapshot, Transacao, TxProvento, TxTrade } from "../engine/types";
+import type {
+  Ativo,
+  Config,
+  HistoricoPrecos,
+  PontoHistorico,
+  PrecosSnapshot,
+  Transacao,
+  TxProvento,
+  TxTrade,
+} from "../engine/types";
 import { supabase } from "./supabase";
 
 /** Resumo da última alteração — para o indicador de frescor na Visão geral. */
@@ -72,6 +81,20 @@ export async function upsertAtivo(ativo: Ativo): Promise<void> {
   };
   const { error } = await supabase.from("assets").upsert(linha, { onConflict: "ticker" });
   if (error) throw new Error(`Falha ao registrar ativo: ${error.message}`);
+}
+
+/**
+ * Carrega a série histórica diária (tabela prices_history) para reconstruir a
+ * evolução do patrimônio nos relatórios. Ordenada por data (ascendente).
+ * Carregada sob demanda (ao abrir a aba Relatório), não no load inicial.
+ */
+export async function carregarHistorico(): Promise<HistoricoPrecos> {
+  const { data, error } = await supabase
+    .from("prices_history")
+    .select("data,acoes,cambio,indices")
+    .order("data", { ascending: true });
+  if (error) throw new Error(`prices_history: ${error.message}`);
+  return (data ?? []).map(mapHistorico);
 }
 
 /** Salva um snapshot do relatório (HTML) no banco. */
@@ -192,6 +215,22 @@ function mapPrecos(r: LinhaPrecos): PrecosSnapshot {
     cambio: r.cambio ?? { BRL: 1 },
     acoes: r.acoes ?? {},
     tesouro: r.tesouro ?? {},
+  };
+}
+
+interface LinhaHistorico {
+  data: string;
+  acoes: Record<string, number> | null;
+  cambio: Record<string, number> | null;
+  indices: Record<string, number> | null;
+}
+function mapHistorico(r: LinhaHistorico): PontoHistorico {
+  // Colunas jsonb: números vêm como números (o Postgres preserva o tipo JSON).
+  return {
+    data: r.data,
+    acoes: r.acoes ?? {},
+    cambio: r.cambio ?? {},
+    indices: r.indices ?? {},
   };
 }
 
