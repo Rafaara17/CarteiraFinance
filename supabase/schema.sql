@@ -141,6 +141,31 @@ create policy reports_insert on public.reports
   for insert to authenticated with check (user_id = auth.uid());
 
 -- ---------------------------------------------------------------------------
+-- prices_history: série histórica diária (uma linha por dia de pregão) usada
+-- para reconstruir a EVOLUÇÃO do patrimônio e a rentabilidade por período nos
+-- relatórios. SELECT para autenticados; ESCRITA só via service role (a Action
+-- de histórico, que busca com o token Brapi PRO) => mesma garantia de
+-- "dados sempre oficiais" do prices_latest.
+--
+--   acoes   : { ticker -> preço de fechamento na moeda do ativo }
+--   cambio  : { moeda  -> câmbio para BRL } (ex.: { "USD": 5.43 })
+--   indices : { chave  -> nível acumulado do índice } (IBOV, SP500, CDI, IPCA)
+-- ---------------------------------------------------------------------------
+create table if not exists public.prices_history (
+  data    date primary key,
+  acoes   jsonb not null default '{}'::jsonb,
+  cambio  jsonb not null default '{}'::jsonb,
+  indices jsonb not null default '{}'::jsonb
+);
+
+alter table public.prices_history enable row level security;
+
+drop policy if exists prices_history_select on public.prices_history;
+create policy prices_history_select on public.prices_history
+  for select to authenticated using (true);
+-- (sem policy de escrita => só service role escreve)
+
+-- ---------------------------------------------------------------------------
 -- Realtime: publica mudanças para o app sincronizar entre máquinas ao vivo.
 -- (idempotente: só adiciona à publicação se ainda não estiver lá)
 -- ---------------------------------------------------------------------------

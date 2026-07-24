@@ -119,6 +119,8 @@ export function App() {
               <Report
                 config={dados.config}
                 snapshot={dados.snapshot}
+                transacoes={dados.transacoes}
+                ativos={dados.ativos}
                 precoAtualizadoEm={dados.precos.atualizadoEm}
                 membro={membro}
               />

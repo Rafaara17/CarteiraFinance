@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "fetch-prices": "tsx scripts/fetch-prices.ts",
-    "fetch-dividends": "tsx scripts/fetch-dividends.ts"
+    "fetch-dividends": "tsx scripts/fetch-dividends.ts",
+    "fetch-history": "tsx scripts/fetch-history.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
