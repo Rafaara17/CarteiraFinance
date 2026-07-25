@@ -20,8 +20,6 @@ interface Props {
   membro: string;
   papel: string;
   snapshot: PortfolioSnapshot | null;
-  atualizando: boolean;
-  onAtualizar: () => void;
   onSair: () => void;
   children: ReactNode;
 }
@@ -88,10 +86,6 @@ export function Shell(props: Props) {
               )}
             </div>
           )}
-
-          <button className="secundario" onClick={props.onAtualizar} disabled={props.atualizando}>
-            {props.atualizando ? "Atualizando…" : "Atualizar"}
-          </button>
         </header>
 
         <main className="conteudo">{props.children}</main>

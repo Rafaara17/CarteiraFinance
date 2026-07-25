@@ -76,8 +76,6 @@ export function App() {
       membro={membro}
       papel={ROTULO_PAPEL[dados.meuPapel]}
       snapshot={snapshot}
-      atualizando={dados.carregando}
-      onAtualizar={dados.recarregar}
       onSair={() => void signOut()}
     >
       {dados.erro && <div className="alerta" style={{ marginBottom: "1rem" }}>Erro: {dados.erro}</div>}
