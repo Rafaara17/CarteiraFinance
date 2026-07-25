@@ -36,12 +36,18 @@ export async function cotacaoDolarOuSnapshot(precos: PrecosSnapshot): Promise<nu
 
 /** Resultado da identificação de um ativo de renda variável. */
 export interface AtivoClassificado {
+  /**
+   * Ticker CONFIRMADO pela bolsa. Pode diferir do digitado quando a busca cai no
+   * modo "por nome" (ex.: "APPLE" -> "AAPL"); é ele que deve ser registrado, ou
+   * o ativo nasceria com um código que nenhuma fonte sabe cotar.
+   */
+  ticker: string;
   tipo: ClasseAtivo;
   moeda: Moeda;
   bolsa: Bolsa;
   /** Preço de mercado agora, na moeda do ativo (null se a fonte não respondeu). */
   precoRef: number | null;
-  /** Nome longo do ativo, quando a fonte fornece. */
+  /** Razão social cadastrada na bolsa (ex.: "Apple Inc."), quando a fonte fornece. */
   nome?: string;
 }
 
@@ -58,6 +64,7 @@ export async function classificarAtivo(ticker: string, precos: PrecosSnapshot): 
 
   if (resolvido) {
     return {
+      ticker: resolvido.ticker || tk,
       tipo: resolvido.tipo,
       moeda: resolvido.moeda,
       bolsa: resolvido.bolsa,
@@ -66,7 +73,7 @@ export async function classificarAtivo(ticker: string, precos: PrecosSnapshot): 
     };
   }
 
-  return { ...classificarPorTicker(tk), precoRef: precoDoSnapshot(tk, precos) };
+  return { ticker: tk, ...classificarPorTicker(tk), precoRef: precoDoSnapshot(tk, precos) };
 }
 
 /**

@@ -42,7 +42,10 @@ async function chamar<T>(corpo: Record<string, unknown>): Promise<T> {
 }
 
 function traduzir(msg: string): string {
-  if (/not found|404/i.test(msg)) {
+  // "Failed to send a request to the Edge Function" é o FunctionsFetchError do
+  // supabase-js: o fetch nem chegou a completar. Na prática é sempre função não
+  // publicada — o preflight OPTIONS volta 404 e o navegador aborta a chamada.
+  if (/not found|404|failed to send a request/i.test(msg)) {
     return "A função de cotações ainda não foi publicada no Supabase (veja o README).";
   }
   return msg;

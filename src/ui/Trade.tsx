@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { fmtBRL, fmtNum } from "../engine/report";
 import type { Ativo, ClasseAtivo, PortfolioSnapshot, PrecosSnapshot, TxTrade } from "../engine/types";
 import { registrarTransacao, upsertAtivo } from "../data/supabaseClient";
@@ -53,11 +53,15 @@ function uuid() {
 
 // ---------------------------------------------------------------------------
 
+/** Espera (ms) entre a última tecla e a consulta à bolsa. */
+const DEBOUNCE_BUSCA = 450;
+
 function ComprarAcao({ snapshot, membro, precos, carteiraId, onDone }: Props) {
   const [ticker, setTicker] = useState("");
   const [preco, setPreco] = useState("");
   const [qtd, setQtd] = useState("");
-  const [nome, setNome] = useState("");
+  /** Só entra em jogo quando a bolsa NÃO devolve o nome (ticker exótico/gateway fora). */
+  const [nomeManual, setNomeManual] = useState("");
   const [msg, setMsg] = useState<{ tipo: "ok" | "erro"; texto: string } | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const [det, setDet] = useState<AtivoClassificado | null>(null);
@@ -65,6 +69,52 @@ function ComprarAcao({ snapshot, membro, precos, carteiraId, onDone }: Props) {
   /** true enquanto o campo de preço ainda tem o valor de mercado que preenchemos. */
   const [precoAutomatico, setPrecoAutomatico] = useState(true);
 
+  // Lidos DENTRO do efeito de busca. Ficam em ref para não entrarem na lista de
+  // dependências: `precos` troca a cada recarga de cotações e dispararia uma
+  // consulta nova sem o usuário ter digitado nada.
+  const precosRef = useRef(precos);
+  const precoAutoRef = useRef(precoAutomatico);
+  const precoDigitadoRef = useRef(preco);
+  precosRef.current = precos;
+  precoAutoRef.current = precoAutomatico;
+  precoDigitadoRef.current = preco;
+
+  /**
+   * Consulta a bolsa enquanto o usuário digita: nome, tipo, bolsa, moeda e
+   * preço saem todos daqui. O cleanup cancela o timer e marca a resposta como
+   * obsoleta, então uma consulta lenta de "AAP" nunca sobrescreve "AAPL".
+   */
+  useEffect(() => {
+    const tk = ticker.trim().toUpperCase();
+    if (!tk) {
+      setDetectando(false);
+      return;
+    }
+    let vivo = true;
+    setDetectando(true);
+    const timer = setTimeout(async () => {
+      try {
+        const info = await classificarAtivo(tk, precosRef.current);
+        if (!vivo) return;
+        setDet(info);
+        if (info.precoRef != null && (precoAutoRef.current || !precoDigitadoRef.current)) {
+          setPreco(String(info.precoRef));
+          setPrecoAutomatico(true);
+        }
+      } catch {
+        if (vivo) setDet(null);
+      } finally {
+        if (vivo) setDetectando(false);
+      }
+    }, DEBOUNCE_BUSCA);
+    return () => {
+      vivo = false;
+      clearTimeout(timer);
+    };
+  }, [ticker]);
+
+  /** Razão social vinda da bolsa — é ela que vai para o registro de ativos. */
+  const nomeBolsa = det?.nome?.trim() ?? "";
   const moeda = det?.moeda ?? "BRL";
   const simbolo = moeda === "BRL" ? "R$" : "US$";
   const fxEstimado = moeda === "BRL" ? 1 : precos.cambio?.USD ?? 1;
@@ -75,35 +125,10 @@ function ComprarAcao({ snapshot, membro, precos, carteiraId, onDone }: Props) {
   const caixaRestante = custoEstimado == null ? null : snapshot.caixaBRL - custoEstimado;
   const semCaixa = caixaRestante != null && caixaRestante < 0;
 
-  /**
-   * Resolve o ativo e JÁ PREENCHE o preço com a cotação de mercado — o campo
-   * segue editável, para registrar uma compra a um preço específico.
-   */
-  async function detectar() {
-    const tk = ticker.trim().toUpperCase();
-    if (!tk) {
-      setDet(null);
-      return;
-    }
-    setDetectando(true);
-    try {
-      const info = await classificarAtivo(tk, precos);
-      setDet(info);
-      if (info.precoRef != null && (precoAutomatico || !preco)) {
-        setPreco(String(info.precoRef));
-        setPrecoAutomatico(true);
-      }
-    } catch {
-      setDet(null);
-    } finally {
-      setDetectando(false);
-    }
-  }
-
   async function comprar() {
     setMsg(null);
-    const tk = ticker.trim().toUpperCase();
-    if (!tk || !isFinite(q) || q <= 0) {
+    const digitado = ticker.trim().toUpperCase();
+    if (!digitado || !isFinite(q) || q <= 0) {
       setMsg({ tipo: "erro", texto: "Informe ticker e quantidade válidos." });
       return;
     }
@@ -113,7 +138,10 @@ function ComprarAcao({ snapshot, membro, precos, carteiraId, onDone }: Props) {
     }
     setOcupado(true);
     try {
-      const info = det ?? (await classificarAtivo(tk, precos));
+      // Se o usuário submeteu antes do debounce rodar, resolve na hora.
+      const info = det ?? (await classificarAtivo(digitado, precos));
+      // Vale o ticker que a bolsa confirmou (ver AtivoClassificado.ticker).
+      const tk = info.ticker || digitado;
       const fx = info.moeda === "BRL" ? 1 : await cotacaoDolarOuSnapshot(precos);
       const custoBRL = q * p * fx;
       if (custoBRL > snapshot.caixaBRL + 1e-6) {
@@ -130,7 +158,9 @@ function ComprarAcao({ snapshot, membro, precos, carteiraId, onDone }: Props) {
         ticker: tk,
         bolsa: info.bolsa,
         moeda: info.moeda,
-        nome: nome.trim() || info.nome || tk,
+        // O nome vem da bolsa; o manual só existe como rede de segurança para
+        // quando ela não devolve nenhum (ver o campo "Nome" no formulário).
+        nome: info.nome?.trim() || nomeManual.trim() || tk,
       });
 
       const tx: TxTrade = {
@@ -149,13 +179,14 @@ function ComprarAcao({ snapshot, membro, precos, carteiraId, onDone }: Props) {
       setMsg({
         tipo: "ok",
         texto:
-          `Compra registrada: ${fmtNum(q, q % 1 === 0 ? 0 : 4)} ${tk} a ${fmtNum(p, 2)} ${info.moeda}` +
+          `Compra registrada: ${fmtNum(q, q % 1 === 0 ? 0 : 4)} ${tk}` +
+          `${info.nome ? ` (${info.nome})` : ""} a ${fmtNum(p, 2)} ${info.moeda}` +
           `${info.moeda !== "BRL" ? ` (dólar ${fmtNum(fx, 4)})` : ""} = ${fmtBRL(custoBRL)}.`,
       });
       setTicker("");
       setQtd("");
       setPreco("");
-      setNome("");
+      setNomeManual("");
       setDet(null);
       setPrecoAutomatico(true);
       onDone();
@@ -175,7 +206,7 @@ function ComprarAcao({ snapshot, membro, precos, carteiraId, onDone }: Props) {
     <div className="card">
       <div className="card__cab">
         <h3>Comprar ação, ETF ou FII</h3>
-        <span className="muted">bolsa, moeda e tipo são detectados pelo ticker</span>
+        <span className="muted">nome, bolsa, moeda e tipo vêm da bolsa pelo ticker</span>
       </div>
 
       <div className="row" style={{ alignItems: "flex-start" }}>
@@ -186,10 +217,11 @@ function ComprarAcao({ snapshot, membro, precos, carteiraId, onDone }: Props) {
             value={ticker}
             onChange={(e) => {
               setTicker(e.target.value);
+              // Zera a identificação anterior: enquanto a nova não chega, nada
+              // de mostrar o nome da empresa errada ao lado do ticker novo.
+              setDet(null);
               setPrecoAutomatico(true);
             }}
-            onBlur={detectar}
-            onKeyDown={(e) => e.key === "Enter" && detectar()}
             placeholder="PETR4, AAPL, HGLG11…"
             autoCapitalize="characters"
           />
@@ -215,11 +247,14 @@ function ComprarAcao({ snapshot, membro, precos, carteiraId, onDone }: Props) {
 
       <div className="aviso" style={{ marginBottom: "0.9rem" }}>
         {detectando ? (
-          "Consultando o mercado…"
+          "Consultando a bolsa…"
         ) : det ? (
           <>
-            <strong>{ticker.trim().toUpperCase()}</strong> · {ROTULO_CLASSE[det.tipo]} · {det.bolsa} · {det.moeda}
-            {det.nome ? ` · ${det.nome}` : ""}
+            <strong>{det.ticker}</strong> · {ROTULO_CLASSE[det.tipo]} · {det.bolsa} · {det.moeda}
+            {nomeBolsa ? ` · ${nomeBolsa}` : ""}
+            {det.ticker !== ticker.trim().toUpperCase() && (
+              <span className="muted"> — será registrado com este código, não com “{ticker.trim().toUpperCase()}”.</span>
+            )}
             <br />
             {det.precoRef != null ? (
               <>
@@ -238,13 +273,25 @@ function ComprarAcao({ snapshot, membro, precos, carteiraId, onDone }: Props) {
             )}
           </>
         ) : (
-          "Digite o ticker e saia do campo (ou aperte Enter) para buscar a cotação atual."
+          "Digite o ticker — nome, tipo, bolsa e cotação são buscados automaticamente."
         )}
       </div>
 
       <div className="campo">
-        <label htmlFor="nm">Nome (opcional)</label>
-        <input id="nm" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="preenchido automaticamente se deixar em branco" />
+        <label htmlFor="nm">Nome {nomeBolsa ? "(cadastrado na bolsa)" : ""}</label>
+        <input
+          id="nm"
+          value={nomeBolsa || nomeManual}
+          onChange={(e) => setNomeManual(e.target.value)}
+          disabled={nomeBolsa !== "" || det == null}
+          placeholder={detectando ? "Consultando a bolsa…" : "vem da bolsa ao digitar o ticker"}
+        />
+        {det != null && !nomeBolsa && (
+          <p className="muted" style={{ fontSize: "0.78rem", marginTop: "0.3rem" }}>
+            A bolsa não devolveu o nome deste ticker. Informe manualmente ou deixe em branco para
+            usar o próprio código.
+          </p>
+        )}
       </div>
 
       {custoEstimado != null && (
