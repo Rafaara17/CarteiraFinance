@@ -3,6 +3,12 @@
 // carteiras pessoais + a liga. Reaproveita `computarPortfolio` — cada carteira é
 // só um conjunto de transações replayado sobre o mesmo capital inicial fixo, o
 // que torna os retornos diretamente comparáveis.
+//
+// DORMENTE: nenhuma tela usa este módulo hoje — a carteira pessoal saiu da
+// interface e o app é só a carteira da liga. Mantido (com testes passando)
+// porque o banco continua suportando multi-carteira: reativar a comparação é
+// escrever a UI de novo, sem migração. Ver forkCarteiraPessoal em
+// data/supabaseClient.ts.
 
 import { computarPortfolio } from "./portfolio";
 import type { Ativo, Config, PortfolioSnapshot, PrecosSnapshot, Transacao } from "./types";

@@ -8,11 +8,16 @@
  * (ignora RLS), então nenhum usuário comum grava histórico — "dados oficiais".
  *
  * Env necessárias (secrets da Action):
- *   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, BRAPI_TOKEN
+ *   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+ *   BRAPI_TOKEN — OPCIONAL (ver abaixo)
  *
  * Fontes:
- *  - Ações B3 + índice IBOV/S&P: brapi.dev (token PRO) — histórico diário.
- *    Fallback (e ações US): Yahoo Finance (endpoint chart, sem chave).
+ *  - Ações e índices (IBOV/S&P): Yahoo Finance (endpoint chart, sem chave) como
+ *    fonte PRIMÁRIA. Se `BRAPI_TOKEN` estiver definido, a brapi PRO é tentada
+ *    antes para os papéis da B3 (dados de fechamento um pouco mais fiéis).
+ *    O token é opcional de propósito: antes ele era obrigatório e, sem o secret,
+ *    o script morria na primeira linha — nenhuma série era gravada e os gráficos
+ *    de evolução ficavam vazios em todo o app.
  *  - Câmbio USD/BRL diário: AwesomeAPI (série diária).
  *  - CDI (BCB SGS 12, % a.d.) e IPCA (BCB SGS 433, % a.m.): acumulados em índice.
  *
@@ -27,9 +32,9 @@
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-const RANGE = "1y"; // janela buscada na brapi/yahoo (ações e índices de mercado)
+const RANGE = "2y"; // janela buscada no yahoo/brapi (ações e índices de mercado)
 const DIAS_JANELA = 400; // nº de pontos diários buscados no câmbio (margem de segurança)
-const DIAS_ESCRITA = 366; // janela (dias) reescrita por execução: ~1 ano (casa com RANGE)
+const DIAS_ESCRITA = 731; // janela (dias) reescrita por execução: ~2 anos (casa com RANGE)
 
 interface AtivoLite {
   ticker: string;
@@ -51,7 +56,9 @@ interface LinhaHistorico {
 async function main() {
   const url = requireEnv("SUPABASE_URL");
   const serviceKey = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
-  const brapiToken = requireEnv("BRAPI_TOKEN");
+  // Opcional: sem ele o script roda igual, só pelo Yahoo.
+  const brapiToken = process.env.BRAPI_TOKEN?.trim() || null;
+  if (!brapiToken) console.log("BRAPI_TOKEN ausente — usando só o Yahoo Finance.");
   const db = createClient(url, serviceKey, { auth: { persistSession: false } });
 
   const { data: ativos, error } = await db.from("assets").select("ticker,tipo,bolsa,moeda");
@@ -138,24 +145,34 @@ async function main() {
   console.log(`prices_history: ${linhas.length} dias gravados (${linhas[0].data} → ${linhas[linhas.length - 1].data}).`);
 }
 
-/** Preço histórico de fechamento de uma ação (brapi com token; fallback Yahoo). */
-async function historicoAcao(ticker: string, ehBR: boolean, token: string): Promise<Serie> {
-  try {
-    return await historicoBrapi(ticker, token);
-  } catch (e) {
-    console.warn(`  brapi ${ticker} falhou (${msg(e)}); tentando Yahoo`);
-    return await historicoYahoo(ehBR ? `${ticker}.SA` : ticker);
+/**
+ * Preço histórico de fechamento de uma ação.
+ *
+ * Yahoo é a fonte primária (grátis, sem token, cobre B3 e bolsas americanas).
+ * Com `BRAPI_TOKEN` definido, a brapi PRO é tentada antes para papéis da B3.
+ */
+async function historicoAcao(ticker: string, ehBR: boolean, token: string | null): Promise<Serie> {
+  const simboloYahoo = ehBR ? `${ticker}.SA` : ticker;
+  if (token && ehBR) {
+    try {
+      return await historicoBrapi(ticker, token);
+    } catch (e) {
+      console.warn(`  brapi ${ticker} falhou (${msg(e)}); usando Yahoo`);
+    }
   }
+  return await historicoYahoo(simboloYahoo);
 }
 
-/** Índice de mercado (brapi com token; fallback Yahoo com o mesmo símbolo). */
-async function historicoIndice(symbol: string, token: string): Promise<Serie> {
-  try {
-    return await historicoBrapi(symbol, token);
-  } catch (e) {
-    console.warn(`  brapi ${symbol} falhou (${msg(e)}); tentando Yahoo`);
-    return await historicoYahoo(symbol);
+/** Índice de mercado (Yahoo primário; brapi PRO antes, se houver token). */
+async function historicoIndice(symbol: string, token: string | null): Promise<Serie> {
+  if (token) {
+    try {
+      return await historicoBrapi(symbol, token);
+    } catch (e) {
+      console.warn(`  brapi ${symbol} falhou (${msg(e)}); usando Yahoo`);
+    }
   }
+  return await historicoYahoo(symbol);
 }
 
 /** brapi.dev — histórico diário. B3 sem sufixo; índices como ^BVSP/^GSPC. */

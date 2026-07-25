@@ -29,8 +29,15 @@ export function ehTickerB3(ticker: string): boolean {
  * Infere o tipo (ação/ETF/FII) de um ticker da B3.
  *
  * A ambiguidade real está no final "11", que pode ser FII, ETF ou Unit (ação).
- * Quando o nome do ativo está disponível (vindo da brapi), usamos ele para
- * desambiguar; sem nome, o padrão para "11" é FII (caso mais comum na B3).
+ * Quando o nome do ativo está disponível, ele desambigua.
+ *
+ * Regra do "11" com nome conhecido: fundos SEMPRE se anunciam no nome — "FII",
+ * "FDO INV IMOB", "ISHARES", "ETF". Se o nome não traz nenhuma dessas marcas, o
+ * papel é uma **Unit** (ação), mesmo sem o sufixo "UNT" escrito. Sem isso,
+ * SANB11 ("Banco Santander (Brasil) S.A.") caía no default e aparecia como FII
+ * na carteira e nos gráficos de alocação.
+ *
+ * Sem nome nenhum, o default segue FII — é o caso mais comum do "11" na B3.
  */
 export function inferirTipoB3(ticker: string, nome?: string): ClasseAtivo {
   const tk = ticker.trim().toUpperCase();
@@ -44,6 +51,7 @@ export function inferirTipoB3(ticker: string, nome?: string): ClasseAtivo {
       if (RE_NOME_UNIT.test(nome)) return "acao";
       if (RE_NOME_ETF.test(nome)) return "etf";
       if (RE_NOME_FII.test(nome)) return "fii";
+      return "acao"; // nome sem marca de fundo => Unit
     }
     return "fii"; // default para "11" sem pista de nome
   }

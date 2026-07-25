@@ -4,11 +4,13 @@ name: Série histórica (evolução)
 # prices_history). Diferente de "Atualizar preços" (prices.yml, de hora em hora),
 # a série histórica só muda uma vez por dia — no fechamento —, então roda 1x/dia.
 #
-# A cada execução reescreve os últimos ~1 ano por upsert e NUNCA apaga: o
-# 1º disparo semeia ~1 ano de dados e os seguintes só acrescentam o dia novo,
+# A cada execução reescreve os últimos ~2 anos por upsert e NUNCA apaga: o
+# 1º disparo semeia ~2 anos de dados e os seguintes só acrescentam o dia novo,
 # preservando o histórico completo (filtro "Tudo"/desde o início).
 #
-# Para SEMEAR agora (1º ano de dados): rode manualmente por "Run workflow".
+# Para SEMEAR agora, o caminho mais curto é o próprio app: entre como admin e use
+# "Admin -> Série histórica -> Gerar série histórica agora" (mesma lógica, via
+# Edge Function). Por aqui também dá: "Run workflow".
 on:
   # Dias úteis, 22:30 UTC (~19:30 BRT) — depois do fechamento da B3 e de NY.
   schedule:
@@ -39,6 +41,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          # Token Brapi PRO — SECRETO, só no servidor (nunca vai para o site).
+          # Token Brapi PRO — OPCIONAL e secreto (nunca vai para o site). Sem ele o
+          # script roda igual, pelo Yahoo; com ele, a B3 é refinada pela Brapi.
           BRAPI_TOKEN: ${{ secrets.BRAPI_TOKEN }}
         run: npm run fetch-history

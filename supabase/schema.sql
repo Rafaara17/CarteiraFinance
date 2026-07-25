@@ -119,6 +119,46 @@ create policy prices_select on public.prices_latest
 -- Linha inicial vazia (a Action faz upsert sobre ela).
 insert into public.prices_latest (id) values (1) on conflict (id) do nothing;
 
+-- Fechamento anterior por ticker (e por moeda) — é o que permite mostrar a
+-- VARIAÇÃO DO DIA de cada posição, não só o preço absoluto.
+alter table public.prices_latest
+  add column if not exists fechamento_anterior jsonb not null default '{}'::jsonb;
+
+-- Símbolo do ativo no Yahoo (ex.: PETR4 -> "PETR4.SA"). Cacheado na 1ª cotação
+-- bem-sucedida para nunca mais precisarmos adivinhar bolsa/sufixo.
+alter table public.assets
+  add column if not exists yahoo_symbol text;
+
+-- ---------------------------------------------------------------------------
+-- merge_prices_latest: MESCLA (não substitui) o snapshot de preços.
+--
+-- Usada pela Edge Function `cotacoes`, que cota só os tickers pedidos. Com
+-- `jsonb ||` a operação é atômica: dois membros abrindo o app ao mesmo tempo não
+-- se atropelam, e o que o cron gravou (em especial `tesouro`) fica intacto.
+--
+-- NÃO recebe grant para `authenticated` — só a service role (a Edge Function e
+-- as Actions) executa. A garantia de "preço sempre oficial" continua de pé.
+-- ---------------------------------------------------------------------------
+create or replace function public.merge_prices_latest(
+  p_acoes      jsonb default '{}'::jsonb,
+  p_cambio     jsonb default '{}'::jsonb,
+  p_fechamento jsonb default '{}'::jsonb,
+  p_fonte      text  default 'yahoo finance (ao vivo)'
+) returns void language sql security definer set search_path = public as $$
+  update public.prices_latest
+     set acoes               = acoes || coalesce(p_acoes, '{}'::jsonb),
+         cambio              = cambio || coalesce(p_cambio, '{}'::jsonb),
+         fechamento_anterior = fechamento_anterior || coalesce(p_fechamento, '{}'::jsonb),
+         atualizado_em       = now(),
+         fonte               = p_fonte
+   where id = 1;
+$$;
+
+-- Tira o grant automático para PUBLIC e devolve execução SÓ para a service role
+-- (Edge Function e GitHub Actions). Membro logado não consegue chamar.
+revoke execute on function public.merge_prices_latest(jsonb, jsonb, jsonb, text) from public, anon, authenticated;
+grant  execute on function public.merge_prices_latest(jsonb, jsonb, jsonb, text) to service_role;
+
 -- ---------------------------------------------------------------------------
 -- reports: snapshots do relatório (SELECT + INSERT para autenticados).
 -- ---------------------------------------------------------------------------

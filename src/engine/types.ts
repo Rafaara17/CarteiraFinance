@@ -75,7 +75,7 @@ export interface Config {
   benchmarks?: Record<string, string>;
 }
 
-/** Snapshot de preços/câmbio oficiais (data/prices/latest.json), gerado pela Action. */
+/** Snapshot de preços/câmbio oficiais, gerado pela Edge Function e pela Action. */
 export interface PrecosSnapshot {
   atualizadoEm: string | null;
   fonte?: string;
@@ -85,6 +85,8 @@ export interface PrecosSnapshot {
   acoes: Record<string, number>;
   /** PU oficial por nome de título do Tesouro. */
   tesouro: Record<string, number>;
+  /** fechamento anterior por ticker (e por moeda) — base da variação do dia. */
+  fechamentoAnterior?: Record<string, number>;
 }
 
 /**
@@ -120,8 +122,20 @@ export interface Posicao {
   plNaoRealizadoBRL: number | null;
   plNaoRealizadoPct: number | null;
   pesoPct: number | null; // % do patrimônio total
-  /** origem da marcação: "mercado" | "linear" | "sem-preco" */
-  marcacao?: "mercado" | "linear" | "sem-preco";
+  /** fechamento anterior, na moeda do ativo (null se a fonte não informou). */
+  precoAnterior: number | null;
+  /** variação do dia (%) do preço do ativo, na moeda dele. */
+  variacaoDiaPct: number | null;
+  /** variação do dia (BRL) da posição inteira. */
+  variacaoDiaBRL: number | null;
+  /**
+   * Origem do valor:
+   *  - "mercado": preço oficial de mercado;
+   *  - "linear":  renda fixa sem MtM, crescendo do PU de compra ao vencimento;
+   *  - "custo":   sem cotação ainda — avaliado pelo custo, para que o dinheiro
+   *               NÃO suma do patrimônio (ver computarPortfolio).
+   */
+  marcacao?: "mercado" | "linear" | "custo";
 }
 
 export interface AlocacaoItem {
@@ -133,11 +147,19 @@ export interface AlocacaoItem {
 export interface PortfolioSnapshot {
   caixaBRL: number;
   posicoes: Posicao[];
-  valorInvestidoBRL: number; // soma dos valorBRL das posições marcáveis
+  valorInvestidoBRL: number; // soma dos valorBRL das posições
   patrimonioBRL: number; // caixa + investido
   capitalInicial: number;
   plRealizadoBRL: number;
+  /** P&L não realizado somado (valor de mercado - custo) das posições abertas. */
+  plNaoRealizadoBRL: number;
   retornoTotalPct: number; // (patrimonio - capital) / capital
+  /** variação do dia (BRL) somada das posições com fechamento anterior conhecido. */
+  variacaoDiaBRL: number;
+  /** variação do dia (%) sobre o patrimônio de ontem. */
+  variacaoDiaPct: number | null;
+  /** quantas posições estão avaliadas pelo custo por falta de cotação. */
+  posicoesSemPreco: number;
   cambioUSD: number | null;
   alocacaoPorClasse: AlocacaoItem[];
   alocacaoPorBolsa: AlocacaoItem[];

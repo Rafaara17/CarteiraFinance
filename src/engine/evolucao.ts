@@ -196,6 +196,41 @@ export function computarEvolucao(
   };
 }
 
+/**
+ * Acrescenta o patrimônio de HOJE ao fim da curva.
+ *
+ * `prices_history` só ganha uma linha por dia, depois do fechamento — sem isto a
+ * curva pararia no último pregão gravado e não bateria com o número grande que o
+ * app mostra no topo (que é ao vivo). Se o último ponto já é de hoje, ele é
+ * substituído. Os benchmarks não recebem ponto novo: não temos o nível deles
+ * intradiário, e inventar um distorceria a comparação.
+ */
+export function comPontoDeHoje(ev: Evolucao, patrimonioAtual: number, hoje: Date = new Date()): Evolucao {
+  if (!ev.temDados || !isFinite(patrimonioAtual)) return ev;
+
+  const hojeYMD = ymd(hoje);
+  if (hojeYMD > ev.intervalo.ate) return ev; // período fechado no passado
+
+  const serie = [...ev.serie];
+  if (serie[serie.length - 1]?.data === hojeYMD) serie.pop();
+  serie.push({ data: hojeYMD, patrimonioBRL: patrimonioAtual });
+
+  const rent = [...ev.serieRentabilidade];
+  if (rent[rent.length - 1]?.data === hojeYMD) rent.pop();
+  const base = ev.patrimonioInicio;
+  rent.push({ data: hojeYMD, carteira: base > 0 ? (patrimonioAtual / base - 1) * 100 : 0 });
+
+  return {
+    ...ev,
+    serie,
+    serieRentabilidade: rent,
+    retornosMensais: retornosMensais(serie),
+    patrimonioFim: patrimonioAtual,
+    valorizacaoBRL: patrimonioAtual - base,
+    valorizacaoPct: base > 0 ? (patrimonioAtual / base - 1) * 100 : 0,
+  };
+}
+
 /** Estado (caixa + posições) do ledger considerando só transações até o fim do dia `dataYMD`. */
 function estadoNaData(config: Config, transacoes: Transacao[], dataYMD: string) {
   const limite = Date.parse(`${dataYMD}T23:59:59.999Z`);

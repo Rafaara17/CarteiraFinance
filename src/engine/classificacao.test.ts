@@ -33,6 +33,15 @@ describe("inferirTipoB3", () => {
     expect(inferirTipoB3("SANB11", "SANTANDER BRASIL UNT")).toBe("acao");
   });
 
+  it("trata Unit como ação mesmo quando o nome não diz 'UNT'", () => {
+    // Nomes reais que o Yahoo devolve — nenhum tem marca de fundo, então são Units.
+    expect(inferirTipoB3("SANB11", "Banco Santander (Brasil) S.A.")).toBe("acao");
+    expect(inferirTipoB3("TAEE11", "Transmissora Aliança de Energia Elétrica S.A.")).toBe("acao");
+    // ...e os fundos continuam sendo reconhecidos pelos nomes reais.
+    expect(inferirTipoB3("HGLG11", "Cshg Logistica - Fundo De Investimento Imobiliario")).toBe("fii");
+    expect(inferirTipoB3("BOVA11", "ISHARES IBOVESPA CLASSE DE ÍNDICE - RESPONSABILIDADE LIMITADA")).toBe("etf");
+  });
+
   it("assume FII no final 11 quando não há nome", () => {
     expect(inferirTipoB3("KNRI11")).toBe("fii");
   });

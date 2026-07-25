@@ -18,6 +18,11 @@ const RENDA_FIXA: Set<ClasseAtivo> = new Set(["tesouro", "bond"]);
  * Calcula o snapshot completo da carteira: replay do ledger + marcação a
  * mercado (ações via preço oficial × câmbio real; renda fixa via PU/linear),
  * consolidando tudo em BRL.
+ *
+ * INVARIANTE: toda posição aberta entra no patrimônio. Sem cotação disponível,
+ * ela é avaliada pelo CUSTO (marcacao "custo") em vez de virar `null` — porque
+ * uma posição sem preço não significa que o dinheiro sumiu, e mostrar
+ * patrimônio = caixa é pior do que mostrar o custo com a ressalva.
  */
 export function computarPortfolio(
   config: Config,
@@ -37,6 +42,9 @@ export function computarPortfolio(
 
   const valorInvestidoBRL = posicoes.reduce((s, p) => s + (p.valorBRL ?? 0), 0);
   const patrimonioBRL = estado.caixaBRL + valorInvestidoBRL;
+  const plNaoRealizadoBRL = posicoes.reduce((s, p) => s + (p.plNaoRealizadoBRL ?? 0), 0);
+  const variacaoDiaBRL = posicoes.reduce((s, p) => s + (p.variacaoDiaBRL ?? 0), 0);
+  const patrimonioOntem = patrimonioBRL - variacaoDiaBRL;
 
   // pesos (% do patrimônio)
   for (const p of posicoes) {
@@ -51,10 +59,14 @@ export function computarPortfolio(
     patrimonioBRL,
     capitalInicial: config.capitalInicial,
     plRealizadoBRL: estado.plRealizadoBRL,
+    plNaoRealizadoBRL,
     retornoTotalPct:
       config.capitalInicial > 0
         ? ((patrimonioBRL - config.capitalInicial) / config.capitalInicial) * 100
         : 0,
+    variacaoDiaBRL,
+    variacaoDiaPct: patrimonioOntem > 0 ? (variacaoDiaBRL / patrimonioOntem) * 100 : null,
+    posicoesSemPreco: posicoes.filter((p) => p.marcacao === "custo").length,
     cambioUSD: cambioParaBRL(precos, "USD"),
     alocacaoPorClasse: alocacao(posicoes, patrimonioBRL, (p) => p.classe),
     alocacaoPorBolsa: alocacao(posicoes, patrimonioBRL, (p) => p.bolsa),
@@ -87,7 +99,10 @@ function marcarPosicao(
     plNaoRealizadoBRL: null,
     plNaoRealizadoPct: null,
     pesoPct: null,
-    marcacao: "sem-preco",
+    precoAnterior: null,
+    variacaoDiaPct: null,
+    variacaoDiaBRL: null,
+    marcacao: "custo",
   };
 
   if (ativo && RENDA_FIXA.has(classe) && ativo.bond) {
@@ -96,7 +111,7 @@ function marcarPosicao(
     pos.precoAtual = puAtual;
     pos.fxAtual = fx;
     pos.valorBRL = base.qtd * puAtual * fx;
-    pos.marcacao = marcacao;
+    pos.marcacao = marcacao; // marcarBond só devolve "mercado" | "linear"
   } else {
     const preco = precos.acoes?.[base.ticker];
     const fx = cambioParaBRL(precos, moeda);
@@ -105,14 +120,32 @@ function marcarPosicao(
       pos.fxAtual = fx;
       pos.valorBRL = base.qtd * preco * fx;
       pos.marcacao = "mercado";
+
+      // Variação do dia: precisa do fechamento anterior do ativo. Quando o ativo
+      // é estrangeiro, o câmbio de ontem também conta — sem ele, a variação em
+      // BRL misturaria efeito de preço com efeito de dólar.
+      const anterior = precos.fechamentoAnterior?.[base.ticker];
+      if (typeof anterior === "number" && anterior > 0) {
+        const fxAnterior =
+          moeda === "BRL" ? 1 : precos.fechamentoAnterior?.[moeda] ?? fx;
+        pos.precoAnterior = anterior;
+        pos.variacaoDiaPct = (preco / anterior - 1) * 100;
+        pos.variacaoDiaBRL = base.qtd * (preco * fx - anterior * fxAnterior);
+      }
     }
   }
 
-  if (pos.valorBRL != null) {
-    pos.plNaoRealizadoBRL = pos.valorBRL - base.custoTotalBRL;
-    pos.plNaoRealizadoPct =
-      base.custoTotalBRL > 0 ? (pos.plNaoRealizadoBRL / base.custoTotalBRL) * 100 : null;
+  // Sem cotação: avalia pelo custo em vez de deixar `null`, senão a posição
+  // sumiria do patrimônio e o app mostraria só o caixa.
+  if (pos.valorBRL == null) {
+    pos.valorBRL = base.custoTotalBRL;
+    pos.fxAtual = cambioParaBRL(precos, moeda) ?? 1;
+    pos.marcacao = "custo";
   }
+
+  pos.plNaoRealizadoBRL = pos.valorBRL - base.custoTotalBRL;
+  pos.plNaoRealizadoPct =
+    base.custoTotalBRL > 0 ? (pos.plNaoRealizadoBRL / base.custoTotalBRL) * 100 : null;
   return pos;
 }
 

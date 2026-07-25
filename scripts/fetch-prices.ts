@@ -21,6 +21,8 @@ interface AtivoLite {
   tipo: string;
   bolsa: string;
   moeda: string;
+  /** símbolo resolvido pela Edge Function (ex.: "PETR4.SA"); evita adivinhar. */
+  yahoo_symbol?: string | null;
   bond?: { isTesouro?: boolean; tesouroNome?: string } | null;
 }
 
@@ -30,6 +32,8 @@ interface Snapshot {
   cambio: Record<string, number>;
   acoes: Record<string, number>;
   tesouro: Record<string, number>;
+  /** fechamento do pregão anterior — base da variação do dia na interface. */
+  fechamento_anterior: Record<string, number>;
 }
 
 async function main() {
@@ -37,7 +41,7 @@ async function main() {
   const serviceKey = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
   const db = createClient(url, serviceKey, { auth: { persistSession: false } });
 
-  const { data: ativos, error } = await db.from("assets").select("ticker,tipo,bolsa,moeda,bond");
+  const { data: ativos, error } = await db.from("assets").select("ticker,tipo,bolsa,moeda,bond,yahoo_symbol");
   if (error) throw new Error(`Falha ao ler assets: ${error.message}`);
   const lista = (ativos ?? []) as AtivoLite[];
 
@@ -47,6 +51,7 @@ async function main() {
     cambio: { BRL: 1 },
     acoes: {},
     tesouro: {},
+    fechamento_anterior: {},
   };
 
   // --- Câmbio USD/BRL ---
@@ -56,15 +61,24 @@ async function main() {
   } catch (e) {
     console.warn("Falha no câmbio USD/BRL:", msg(e));
   }
+  try {
+    const usd = await precoYahoo("USDBRL=X");
+    if (usd.fechamentoAnterior != null) snap.fechamento_anterior.USD = usd.fechamentoAnterior;
+    if (snap.cambio.USD == null) snap.cambio.USD = usd.preco;
+  } catch (e) {
+    console.warn("Falha no fechamento anterior do dólar:", msg(e));
+  }
 
   // --- Ações (Yahoo Finance, sem chave; B3 usa sufixo .SA) ---
   const acoes = lista.filter((a) => ehAcao(a.tipo));
   for (const a of acoes) {
     const ehBR = a.bolsa === "B3" || a.moeda === "BRL";
-    const symbol = ehBR ? `${a.ticker}.SA` : a.ticker;
+    const symbol = a.yahoo_symbol || (ehBR ? `${a.ticker}.SA` : a.ticker);
     try {
-      snap.acoes[a.ticker] = await precoYahoo(symbol);
-      console.log(`${a.ticker} (${symbol}) = ${snap.acoes[a.ticker]}`);
+      const { preco, fechamentoAnterior } = await precoYahoo(symbol);
+      snap.acoes[a.ticker] = preco;
+      if (fechamentoAnterior != null) snap.fechamento_anterior[a.ticker] = fechamentoAnterior;
+      console.log(`${a.ticker} (${symbol}) = ${preco}`);
     } catch (e) {
       console.warn(`Falha ${a.ticker} (${symbol}):`, msg(e));
     }
@@ -110,17 +124,22 @@ async function cotacaoDolar(): Promise<number> {
   return v;
 }
 
-/** Yahoo Finance (endpoint chart, sem chave). B3 usa sufixo ".SA" (ex.: PETR4.SA). */
-async function precoYahoo(symbol: string): Promise<number> {
+/**
+ * Yahoo Finance (endpoint chart, sem chave). B3 usa sufixo ".SA" (ex.: PETR4.SA).
+ * Devolve também o fechamento anterior, que alimenta a variação do dia na UI.
+ */
+async function precoYahoo(symbol: string): Promise<{ preco: number; fechamentoAnterior: number | null }> {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1d`;
   const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (CarteiraFinance)" } });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const j = (await r.json()) as {
-    chart?: { result?: Array<{ meta?: { regularMarketPrice?: number } }> };
+    chart?: { result?: Array<{ meta?: { regularMarketPrice?: number; chartPreviousClose?: number } }> };
   };
-  const p = j.chart?.result?.[0]?.meta?.regularMarketPrice;
+  const meta = j.chart?.result?.[0]?.meta;
+  const p = meta?.regularMarketPrice;
   if (typeof p !== "number" || p <= 0) throw new Error("sem cotação");
-  return p;
+  const anterior = meta?.chartPreviousClose;
+  return { preco: p, fechamentoAnterior: typeof anterior === "number" && anterior > 0 ? anterior : null };
 }
 
 /** API oficial do Tesouro Direto: nome -> PU de resgate (marcação a mercado). */

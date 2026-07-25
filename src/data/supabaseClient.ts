@@ -61,7 +61,13 @@ const CONFIG_PADRAO: Config = {
   dataInicio: "2026-01-01",
 };
 
-const PRECOS_PADRAO: PrecosSnapshot = { atualizadoEm: null, cambio: { USD: 1 }, acoes: {}, tesouro: {} };
+const PRECOS_PADRAO: PrecosSnapshot = {
+  atualizadoEm: null,
+  cambio: { BRL: 1 },
+  acoes: {},
+  tesouro: {},
+  fechamentoAnterior: {},
+};
 
 /** Carrega tudo em paralelo e devolve já convertido para os tipos do motor. */
 export async function carregarDados(): Promise<DadosCarregados> {
@@ -129,6 +135,11 @@ export async function garantirMembro(userId: string, nome: string): Promise<void
 /**
  * Cria (ou recupera) a carteira pessoal do usuário logado como CÓPIA (fork) da
  * carteira da liga no momento da ativação. Idempotente. Devolve o id da carteira.
+ *
+ * DORMENTE: a carteira pessoal saiu da interface (o app é só a carteira da liga),
+ * mas o banco continua suportando o modelo multi-carteira — tabelas `wallets`,
+ * `transactions.carteira_id`, a RPC e as policies seguem no schema. Reativar é
+ * voltar a UI; não há migração envolvida. Ver também engine/comparacao.ts.
  */
 export async function forkCarteiraPessoal(): Promise<string> {
   const { data, error } = await supabase.rpc("fork_carteira_pessoal");
@@ -317,6 +328,7 @@ interface LinhaPrecos {
   cambio: Record<string, number> | null;
   acoes: Record<string, number> | null;
   tesouro: Record<string, number> | null;
+  fechamento_anterior?: Record<string, number> | null;
 }
 function mapPrecos(r: LinhaPrecos): PrecosSnapshot {
   return {
@@ -325,6 +337,7 @@ function mapPrecos(r: LinhaPrecos): PrecosSnapshot {
     cambio: r.cambio ?? { BRL: 1 },
     acoes: r.acoes ?? {},
     tesouro: r.tesouro ?? {},
+    fechamentoAnterior: r.fechamento_anterior ?? {},
   };
 }
 
