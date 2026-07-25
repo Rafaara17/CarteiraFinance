@@ -92,7 +92,8 @@ O app tem **duas carteiras** por login e um **sistema de papéis** — tudo gara
    - `SUPABASE_ANON_KEY` = a chave `anon public` (usada no build do site)
    - `SUPABASE_SERVICE_ROLE_KEY` = a chave `service_role` (usada só pela Action de preços)
    - `BRAPI_TOKEN` = seu token **Brapi PRO** (usado só pela Action, para a série histórica)
-3. Push no branch `main` publica o site; o cron de preços roda dias úteis, de hora em hora.
+3. Push no branch `main` publica o site; o cron de **preços** roda dias úteis, de hora em hora, e o de
+   **série histórica** 1x/dia após o fechamento (dispare-o manualmente uma vez para semear ~1 ano).
 
 > A `service_role` key e o `BRAPI_TOKEN` são **secretos** e só existem nos secrets da Action —
 > nunca vão para o frontend. A `anon` key é pública de propósito (vai embutida no site); a proteção
@@ -101,10 +102,14 @@ O app tem **duas carteiras** por login e um **sistema de papéis** — tudo gara
 ### 3. Série histórica (evolução dos relatórios)
 A aba **Relatório** mostra a **evolução do patrimônio** e a **rentabilidade por período** (este mês, 3
 meses, 12 meses ou intervalo personalizado), com comparação opcional a **IBOV, S&P 500, CDI e IPCA**.
-Isso é reconstruído a partir da tabela `prices_history`, preenchida pela Action com o histórico diário
-(≈1 ano) da **Brapi PRO** (ações e índices), do câmbio (AwesomeAPI) e do **Banco Central** (CDI/IPCA).
-Rode a seção `prices_history` do [`supabase/schema.sql`](supabase/schema.sql) uma vez e garanta o secret
-`BRAPI_TOKEN`. Enquanto a Action não roda a primeira vez, a aba mostra um aviso amigável.
+Isso é reconstruído a partir da tabela `prices_history`, preenchida pela Action **Série histórica**
+([`history.yml`](.github/workflows/history.yml), 1x/dia após o fechamento) com o histórico diário da
+**Brapi PRO** (ações e índices), do câmbio (AwesomeAPI) e do **Banco Central** (CDI/IPCA). O primeiro
+disparo **semeia ~1 ano** de dados; os seguintes só acrescentam o dia novo e **nunca apagam** — a série
+cresce para sempre, então o filtro **"Tudo"/desde o início** continua correto anos depois. Rode a seção
+`prices_history` do [`supabase/schema.sql`](supabase/schema.sql) uma vez, garanta o secret `BRAPI_TOKEN`
+e dispare a Action manualmente (**Run workflow**) para semear na hora. Enquanto ela não roda a primeira
+vez, a aba mostra um aviso amigável.
 
 ## Uso
 

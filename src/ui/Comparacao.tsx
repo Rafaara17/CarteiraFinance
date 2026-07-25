@@ -266,8 +266,8 @@ function OverlayRentabilidade({ config, ativos, transacoesLiga, transacoesMinha,
       {erro && <div className="alerta">Erro ao carregar histórico: {erro}</div>}
       {!carregando && !erro && !temDados && (
         <div className="aviso">
-          Ainda não há série histórica para este período. Rode a Action de histórico (<code>fetch-history</code>).
-          Os indicadores acima já comparam sua carteira com a da liga.
+          A série histórica é montada automaticamente uma vez por dia, após o fechamento — a comparação aparece no
+          próximo pregão. Os indicadores acima já comparam sua carteira com a da liga.
         </div>
       )}
 

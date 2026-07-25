@@ -291,9 +291,9 @@ export function Report({ config, snapshot, transacoes, ativos, precoAtualizadoEm
       {erroHist && <div className="alerta">Erro ao carregar histórico: {erroHist}</div>}
       {!carregandoHist && !erroHist && evolucao && !temEvolucao && (
         <div className="card aviso">
-          Ainda não há série histórica para este período. Rode a Action de histórico (<code>fetch-history</code>) —
-          ela preenche a evolução com ~1 ano de dados. Enquanto isso, os indicadores acima e as posições abaixo
-          seguem atualizados.
+          A série histórica é montada automaticamente uma vez por dia, após o fechamento — a evolução aparece no
+          próximo pregão (o 1º dia já traz ~1 ano de dados). Enquanto isso, os indicadores acima e as posições
+          abaixo seguem atualizados.
         </div>
       )}
 

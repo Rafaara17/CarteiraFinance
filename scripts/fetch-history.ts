@@ -16,13 +16,20 @@
  *  - Câmbio USD/BRL diário: AwesomeAPI (série diária).
  *  - CDI (BCB SGS 12, % a.d.) e IPCA (BCB SGS 433, % a.m.): acumulados em índice.
  *
- * A cada execução refaz ≈1 ano inteiro e sobrescreve (upsert por `data`), então
- * é idempotente e auto-corretivo.
+ * Estratégia: roda 1x por dia (após o fechamento, via GitHub Action). A cada
+ * execução reescreve os últimos ~1 ano por upsert (`data`) — idempotente e
+ * auto-corretivo — e NUNCA apaga: os dias mais antigos, semeados na 1ª execução,
+ * permanecem, então a série cresce para sempre e o filtro "Tudo"/desde o início
+ * continua correto anos depois. Os índices ACUMULADOS (CDI/IPCA) usam âncora
+ * fixa (a data mais antiga já gravada), então o nível absoluto é reproduzível
+ * entre execuções e não há degrau na fronteira de 1 ano quando a série passa
+ * disso.
  */
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-const RANGE = "1y"; // janela buscada na brapi/yahoo
-const DIAS_JANELA = 400; // corte de segurança para câmbio/BCB
+const RANGE = "1y"; // janela buscada na brapi/yahoo (ações e índices de mercado)
+const DIAS_JANELA = 400; // nº de pontos diários buscados no câmbio (margem de segurança)
+const DIAS_ESCRITA = 366; // janela (dias) reescrita por execução: ~1 ano (casa com RANGE)
 
 interface AtivoLite {
   ticker: string;
@@ -51,9 +58,20 @@ async function main() {
   if (error) throw new Error(`Falha ao ler assets: ${error.message}`);
   const equities = ((ativos ?? []) as AtivoLite[]).filter((a) => ehAcao(a.tipo));
 
-  // Acumula tudo em mapas data -> {ticker/moeda/indice -> valor}.
+  // Janela que ESCREVEMOS: os últimos ~1 ano. Dias mais antigos já gravados não
+  // são reescritos nem apagados (o upsert nunca deleta) => a série cresce sempre.
+  const writeStart = ymd(Date.now() - DIAS_ESCRITA * 24 * 60 * 60 * 1000);
+  // Âncora fixa dos índices acumulados (CDI/IPCA): a menor data já gravada (na 1ª
+  // execução = a própria writeStart). Acumular sempre a partir dela mantém o
+  // nível absoluto estável entre execuções, sem degrau ao passar de 1 ano.
+  const anchorData = (await menorDataHistorico(db)) ?? writeStart;
+
+  // Acumula tudo em mapas data -> {ticker/moeda/indice -> valor}. `linha` só
+  // materializa datas dentro da janela de escrita (retorna null fora dela), para
+  // não criar linhas parciais em dias antigos (que apagariam ações/câmbio deles).
   const porData = new Map<string, LinhaHistorico>();
-  const linha = (d: string): LinhaHistorico => {
+  const linha = (d: string): LinhaHistorico | null => {
+    if (d < writeStart) return null;
     let l = porData.get(d);
     if (!l) {
       l = { data: d, acoes: {}, cambio: {}, indices: {} };
@@ -67,7 +85,10 @@ async function main() {
     const ehBR = a.bolsa === "B3" || a.moeda === "BRL";
     try {
       const serie = await historicoAcao(a.ticker, ehBR, brapiToken);
-      for (const [d, close] of serie) linha(d).acoes[a.ticker] = close;
+      for (const [d, close] of serie) {
+        const l = linha(d);
+        if (l) l.acoes[a.ticker] = close;
+      }
       console.log(`${a.ticker}: ${serie.size} pontos`);
     } catch (e) {
       console.warn(`Falha histórico ${a.ticker}:`, msg(e));
@@ -77,7 +98,10 @@ async function main() {
   // --- Câmbio USD/BRL diário (AwesomeAPI) ---
   try {
     const serie = await cambioDiarioUSD();
-    for (const [d, v] of serie) linha(d).cambio.USD = v;
+    for (const [d, v] of serie) {
+      const l = linha(d);
+      if (l) l.cambio.USD = v;
+    }
     console.log(`USD/BRL: ${serie.size} pontos`);
   } catch (e) {
     console.warn("Falha câmbio diário USD/BRL:", msg(e));
@@ -87,13 +111,16 @@ async function main() {
   const indices: Array<{ chave: string; buscar: () => Promise<Serie> }> = [
     { chave: "IBOV", buscar: () => historicoIndice("^BVSP", brapiToken) }, // brapi PRO / Yahoo
     { chave: "SP500", buscar: () => historicoIndice("^GSPC", brapiToken) }, // brapi PRO / Yahoo
-    { chave: "CDI", buscar: () => indiceAcumulado(12) }, // BCB SGS 12 (% ao dia)
-    { chave: "IPCA", buscar: () => indiceAcumulado(433) }, // BCB SGS 433 (% ao mês)
+    { chave: "CDI", buscar: () => indiceAcumulado(12, anchorData) }, // BCB SGS 12 (% ao dia)
+    { chave: "IPCA", buscar: () => indiceAcumulado(433, anchorData) }, // BCB SGS 433 (% ao mês)
   ];
   for (const { chave, buscar } of indices) {
     try {
       const serie = await buscar();
-      for (const [d, v] of serie) linha(d).indices[chave] = v;
+      for (const [d, v] of serie) {
+        const l = linha(d);
+        if (l) l.indices[chave] = v;
+      }
       console.log(`${chave}: ${serie.size} pontos`);
     } catch (e) {
       console.warn(`Falha índice ${chave}:`, msg(e));
@@ -191,13 +218,15 @@ async function cambioDiarioUSD(): Promise<Serie> {
 }
 
 /**
- * Índice acumulado (base 100) a partir de uma série de % do BCB (SGS).
- * Funciona tanto para série diária (CDI, % ao dia) quanto mensal (IPCA, % ao
- * mês): a cada ponto multiplica por (1 + valor/100). Para o IPCA o nível fica
- * no 1º dia do mês e o frontend faz o forward-fill dos dias intermediários.
+ * Índice acumulado (base 100) a partir de uma série de % do BCB (SGS), começando
+ * em `desde` (AAAA-MM-DD). Funciona tanto para série diária (CDI, % ao dia)
+ * quanto mensal (IPCA, % ao mês): a cada ponto multiplica por (1 + valor/100).
+ * Para o IPCA o nível fica no 1º dia do mês e o frontend faz o forward-fill dos
+ * dias intermediários. Como `desde` é FIXO (a menor data já gravada), o nível
+ * absoluto é reproduzível entre execuções — não há degrau ao passar de 1 ano.
  */
-async function indiceAcumulado(serieBCB: number): Promise<Serie> {
-  const pontos = await serieSGS(serieBCB);
+async function indiceAcumulado(serieBCB: number, desde: string): Promise<Serie> {
+  const pontos = await serieSGS(serieBCB, desde);
   const out: Serie = new Map();
   let idx = 100;
   for (const { data, valor } of pontos) {
@@ -208,10 +237,13 @@ async function indiceAcumulado(serieBCB: number): Promise<Serie> {
   return out;
 }
 
-/** API do Banco Central (SGS). Retorna pontos {data AAAA-MM-DD, valor number}. */
-async function serieSGS(serie: number): Promise<Array<{ data: string; valor: number }>> {
-  const inicio = new Date(Date.now() - DIAS_JANELA * 24 * 60 * 60 * 1000);
-  const dataInicial = `${pad(inicio.getUTCDate())}/${pad(inicio.getUTCMonth() + 1)}/${inicio.getUTCFullYear()}`;
+/**
+ * API do Banco Central (SGS), a partir de `desde` (AAAA-MM-DD). Retorna pontos
+ * {data AAAA-MM-DD, valor number}.
+ */
+async function serieSGS(serie: number, desde: string): Promise<Array<{ data: string; valor: number }>> {
+  const [ano, mes, dia] = desde.split("-");
+  const dataInicial = `${dia}/${mes}/${ano}`;
   const u = `https://api.bcb.gov.br/dados/serie/bcdata.sgs.${serie}/dados?formato=json&dataInicial=${dataInicial}`;
   const r = await fetch(u);
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -240,10 +272,6 @@ function brDataParaYMD(s: string | undefined): string | null {
   return m ? `${m[3]}-${m[2]}-${m[1]}` : null;
 }
 
-function pad(n: number): string {
-  return String(n).padStart(2, "0");
-}
-
 function ehAcao(tipo: string): boolean {
   return tipo === "acao" || tipo === "etf" || tipo === "fii";
 }
@@ -256,6 +284,17 @@ function requireEnv(nome: string): string {
 
 function msg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+/** Menor `data` (AAAA-MM-DD) já gravada em prices_history, ou null se vazia. */
+async function menorDataHistorico(db: SupabaseClient): Promise<string | null> {
+  const { data, error } = await db
+    .from("prices_history")
+    .select("data")
+    .order("data", { ascending: true })
+    .limit(1);
+  if (error) throw new Error(`Falha ao ler prices_history: ${error.message}`);
+  return (data?.[0] as { data?: string } | undefined)?.data ?? null;
 }
 
 main().catch((e) => {

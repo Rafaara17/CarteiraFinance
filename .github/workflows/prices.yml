@@ -40,10 +40,6 @@ jobs:
           PROVENTOS_DESDE: "2026-07-24"
         run: npm run fetch-dividends
 
-      - name: Gravar série histórica (evolução dos relatórios) no Supabase
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          # Token Brapi PRO — SECRETO, só no servidor (nunca vai para o site).
-          BRAPI_TOKEN: ${{ secrets.BRAPI_TOKEN }}
-        run: npm run fetch-history
+      # A série histórica (evolução dos relatórios) NÃO roda aqui: o fechamento
+      # diário só muda uma vez por dia. Ver .github/workflows/history.yml
+      # (roda 1x/dia após o fechamento).

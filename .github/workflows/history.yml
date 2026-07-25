@@ -1,0 +1,44 @@
+name: Série histórica (evolução)
+
+# Alimenta a EVOLUÇÃO do patrimônio e a rentabilidade por período (tabela
+# prices_history). Diferente de "Atualizar preços" (prices.yml, de hora em hora),
+# a série histórica só muda uma vez por dia — no fechamento —, então roda 1x/dia.
+#
+# A cada execução reescreve os últimos ~1 ano por upsert e NUNCA apaga: o
+# 1º disparo semeia ~1 ano de dados e os seguintes só acrescentam o dia novo,
+# preservando o histórico completo (filtro "Tudo"/desde o início).
+#
+# Para SEMEAR agora (1º ano de dados): rode manualmente por "Run workflow".
+on:
+  # Dias úteis, 22:30 UTC (~19:30 BRT) — depois do fechamento da B3 e de NY.
+  schedule:
+    - cron: "30 22 * * 1-5"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: historico
+  cancel-in-progress: true
+
+jobs:
+  historico:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Gravar série histórica (evolução dos relatórios) no Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Token Brapi PRO — SECRETO, só no servidor (nunca vai para o site).
+          BRAPI_TOKEN: ${{ secrets.BRAPI_TOKEN }}
+        run: npm run fetch-history
