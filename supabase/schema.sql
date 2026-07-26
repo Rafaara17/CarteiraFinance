@@ -515,6 +515,14 @@ create policy tesouro_titulos_select on public.tesouro_titulos
   for select to authenticated using (true);
 -- (sem policy de escrita => só service role escreve)
 
+-- data_base: a data A QUE OS PREÇOS SE REFEREM (a "Data Base" do arquivo do
+-- Tesouro Transparente). Não é a mesma coisa que `atualizado_em`: esta diz que a
+-- rotina rodou, aquela diz de quando é o preço. Numa marcação diária é a data_base
+-- que denuncia dado velho — sem ela, uma semana de rotina quebrada passaria batida,
+-- porque a tela seguiria mostrando um PU com cara de atual.
+alter table public.tesouro_titulos
+  add column if not exists data_base date;
+
 create index if not exists tesouro_titulos_vencimento_idx
   on public.tesouro_titulos (vencimento);
 

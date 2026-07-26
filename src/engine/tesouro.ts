@@ -2,28 +2,22 @@
 //
 // POR QUE ESTE MÓDULO EXISTE
 // A marcação a mercado de um título do Tesouro depende de um PU oficial diário.
-// Antes, o app buscava esse PU direto na API da B3
-// (tesourodireto.com.br/.../treasurybondsinfo.json), que está atrás de Cloudflare
-// com proteção anti-bot: funciona no navegador e devolve 403 para IP de
-// datacenter — exatamente o caso do runner da GitHub Action. Resultado prático:
-// `prices_latest.tesouro` nunca era preenchido e todo título do Tesouro acabava
-// marcado pelo crescimento linear, nunca a mercado.
+// Duas fontes foram descartadas antes desta:
 //
-// A fonte agora é a brapi (`/api/v2/treasury`), que espelha o Tesouro
-// Transparente, entrega JSON e usa SLUGS ESTÁVEIS no formato
-// `<nome-do-titulo>-<DDMMAAAA>` — é esse slug que virou a chave do catálogo.
+//  1. API da B3 (tesourodireto.com.br/.../treasurybondsinfo.json) — está atrás de
+//     Cloudflare com proteção anti-bot: funciona no navegador e devolve 403 para
+//     IP de datacenter, exatamente o caso do runner da GitHub Action.
+//  2. brapi /api/v2/treasury — o endpoint de Tesouro existe só no plano PRO, pago.
 //
-// ATENÇÃO — O DADO É DIÁRIO, NÃO INTRADIÁRIO. O Tesouro Transparente publica os
-// PUs uma vez por dia útil. A marcação a mercado é sempre o fechamento do último
-// dia útil publicado; não existe PU minuto a minuto como nas ações.
+// A fonte é o TESOURO TRANSPARENTE, portal de dados abertos do próprio Tesouro
+// Nacional: o CSV `PrecoTaxaTesouroDireto.csv`, sem token e sem custo, com todos
+// os títulos e a série desde 2004. É de onde a própria brapi tira os dados dela.
 //
-// TOLERÂNCIA A NOMES DE CAMPO: `mapearTitulos` não exige um nome exato de campo.
-// Ela indexa as chaves de cada item de forma normalizada (minúsculas, sem
-// separadores) e aceita uma lista de sinônimos por campo, além de descer um nível
-// em objetos aninhados. Isso mantém a ingestão de pé se a fonte publicar
-// `redemptionUnitPrice`, `pu_venda` ou `unitPriceRedemption` para a mesma coisa —
-// e é de propósito, porque o contrato exato não pôde ser verificado na máquina
-// onde este código foi escrito (sem acesso de rede à brapi).
+// ATENÇÃO — O DADO É DIÁRIO, NÃO INTRADIÁRIO. O Tesouro publica os PUs uma vez por
+// dia útil (as colunas do arquivo são literalmente "... Manha"). A marcação a
+// mercado é sempre o último fechamento divulgado; não existe PU minuto a minuto
+// como nas ações. Por isso cada título carrega a sua `dataBase`: é ela que
+// distingue "o título não se moveu hoje" de "o dado parou de chegar".
 
 /** Indexador do título, derivado do nome oficial. */
 export type IndexadorTesouro =
@@ -55,6 +49,14 @@ export interface TituloTesouro {
   investimentoMinimo: number | null;
   /** Se está sendo ofertado agora pelo Tesouro. */
   negociavel: boolean;
+  /**
+   * Data ISO a que os preços se referem — a "Data Base" do arquivo do Tesouro.
+   *
+   * Não confundir com "quando buscamos": `prices_latest.atualizado_em` diz que a
+   * rotina rodou, não que o preço é de hoje. Numa marcação diária é esta data que
+   * denuncia dado velho.
+   */
+  dataBase: string;
 }
 
 const ROTULO_INDEXADOR: Record<IndexadorTesouro, string> = {
@@ -119,9 +121,7 @@ export function indexadorDoNome(nome: string): IndexadorTesouro {
  * completa é o que impede dois títulos do mesmo tipo e ano de colidirem.
  */
 export function slugDe(nome: string, vencimentoISO: string): string {
-  const base = nome
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+  const base = semAcento(nome)
     .toLowerCase()
     .replace(/\+/g, "")
     .replace(/[^a-z0-9]+/g, "-")
@@ -156,86 +156,18 @@ export function mapaPUs(titulos: TituloTesouro[]): Record<string, number> {
   return out;
 }
 
-/** Títulos efetivamente ofertados hoje — o que o catálogo mostra por padrão. */
-export function ofertados(titulos: TituloTesouro[], hoje: Date = new Date()): TituloTesouro[] {
-  const limite = hoje.toISOString().slice(0, 10);
-  return titulos.filter((t) => t.negociavel && t.vencimento >= limite);
-}
-
 // ---------------------------------------------------------------------------
 // Normalização da resposta da fonte
 // ---------------------------------------------------------------------------
 
-type Bruto = Record<string, unknown>;
+/** Texto sem acento — o cabeçalho do CSV oscila entre "Manha" e "Manhã". */
+function semAcento(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
 
-/** Sinônimos aceitos por campo (comparados de forma normalizada). */
-const CHAVES = {
-  slug: ["slug", "id", "code", "symbol", "ticker"],
-  nome: ["name", "nome", "title", "bondname", "longname", "nm"],
-  vencimento: ["maturitydate", "maturity", "vencimento", "expirationdate", "duedate", "mtrtydt"],
-  puCompra: [
-    "investmentunitprice", "unitpriceinvestment", "purchaseunitprice", "buyunitprice",
-    "pucompra", "investmentprice", "untrinvstmtval",
-  ],
-  puVenda: [
-    "redemptionunitprice", "unitpriceredemption", "sellunitprice", "saleunitprice",
-    "puvenda", "redemptionprice", "untrredval",
-  ],
-  taxaCompra: [
-    "investmentrate", "annualinvestmentrate", "buyrate", "purchaserate", "taxacompra",
-    "rate", "anulinvstmtrate",
-  ],
-  taxaVenda: [
-    "redemptionrate", "annualredemptionrate", "sellrate", "salerate", "taxavenda",
-    "anulredrate",
-  ],
-  investimentoMinimo: [
-    "minimuminvestment", "minimuminvestmentamount", "minimumamount", "investimentominimo",
-    "mininvestmentamount", "minvstmtamt",
-  ],
-  // Só nomes que falam explicitamente de negociabilidade. Um "active" genérico
-  // entrava aqui e podia casar com um campo sem relação nenhuma, marcando o
-  // título como fora de oferta e escondendo-o do catálogo.
-  negociavel: ["tradable", "istradable", "available", "isavailable", "negociavel"],
-} as const;
-
-/** Onde a lista de títulos pode estar dentro do envelope da resposta. */
-const CAMINHOS_LISTA = ["treasury", "treasuries", "bonds", "titulos", "results", "data", "items"];
-
+/** Nome de coluna/chave comparável: minúsculo, sem acento e sem pontuação. */
 function normalizarChave(k: string): string {
-  return k.toLowerCase().replace(/[^a-z0-9]/g, "");
-}
-
-function ehObjeto(v: unknown): v is Bruto {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-/**
- * Índice achatado das chaves de um item, normalizadas. Desce um nível em objetos
- * aninhados (a API da B3, por exemplo, embrulha tudo num `TrsrBd`), sem deixar o
- * aninhado sobrescrever o que já veio na raiz.
- */
-function indexar(item: Bruto): Map<string, unknown> {
-  const idx = new Map<string, unknown>();
-  for (const [k, v] of Object.entries(item)) {
-    if (!ehObjeto(v)) idx.set(normalizarChave(k), v);
-  }
-  for (const v of Object.values(item)) {
-    if (!ehObjeto(v)) continue;
-    for (const [k2, v2] of Object.entries(v)) {
-      const nk = normalizarChave(k2);
-      if (!ehObjeto(v2) && !idx.has(nk)) idx.set(nk, v2);
-    }
-  }
-  return idx;
-}
-
-function pegar(idx: Map<string, unknown>, chaves: readonly string[]): unknown {
-  for (const c of chaves) {
-    const v = idx.get(c);
-    if (v != null && v !== "") return v;
-  }
-  return undefined;
+  return semAcento(k).toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 /** Número tolerante a formato pt-BR ("1.234,56") e a valores já numéricos. */
@@ -268,76 +200,126 @@ export function dataISO(v: unknown): string | null {
   return isFinite(d.getTime()) ? d.toISOString().slice(0, 10) : null;
 }
 
-function booleano(v: unknown, padrao: boolean): boolean {
-  if (typeof v === "boolean") return v;
-  if (typeof v === "number") return v !== 0;
-  if (typeof v === "string") {
-    const s = v.trim().toLowerCase();
-    if (["true", "1", "sim", "yes", "s", "y"].includes(s)) return true;
-    if (["false", "0", "nao", "não", "no", "n"].includes(s)) return false;
-  }
-  return padrao;
-}
-
-/** Encontra o array de títulos dentro do envelope da resposta. */
-export function extrairLista(bruto: unknown): Bruto[] {
-  if (Array.isArray(bruto)) return bruto.filter(ehObjeto);
-  if (!ehObjeto(bruto)) return [];
-
-  for (const [k, v] of Object.entries(bruto)) {
-    if (Array.isArray(v) && CAMINHOS_LISTA.includes(normalizarChave(k))) {
-      return v.filter(ehObjeto);
-    }
-  }
-  // Envelope de mais um nível (ex.: { response: { ... } }).
-  for (const v of Object.values(bruto)) {
-    if (ehObjeto(v) || Array.isArray(v)) {
-      const achado = extrairLista(v);
-      if (achado.length > 0) return achado;
-    }
-  }
-  return [];
-}
+// ---------------------------------------------------------------------------
+// Parser do CSV do Tesouro Transparente
+// ---------------------------------------------------------------------------
 
 /**
- * Converte a resposta bruta da fonte no catálogo tipado. Função PURA — é ela que
- * os testes exercitam, sem rede.
+ * Colunas do `PrecoTaxaTesouroDireto.csv`, por nome normalizado.
  *
- * Descarta o que não dá para usar: item sem nome ou sem vencimento não tem como
- * ser identificado nem marcado, então fica fora em vez de virar linha suja no banco.
+ * Casamos pelo CABEÇALHO, não por posição: se o Tesouro inserir uma coluna no
+ * meio do arquivo, nada quebra. A normalização tira acento e pontuação, então
+ * "Taxa Compra Manha" e "Taxa Compra Manhã" caem na mesma chave.
  */
-export function mapearTitulos(bruto: unknown): TituloTesouro[] {
+const COLUNAS = {
+  tipo: "tipotitulo",
+  vencimento: "datavencimento",
+  dataBase: "database",
+  taxaCompra: "taxacompramanha",
+  taxaVenda: "taxavendamanha",
+  puCompra: "pucompramanha",
+  puVenda: "puvendamanha",
+} as const;
+
+type Coluna = keyof typeof COLUNAS;
+
+/**
+ * Quantos dias de `Data Base` para trás ainda contam como "em oferta".
+ *
+ * O arquivo é a série histórica inteira, e nela convivem títulos vendidos hoje
+ * com títulos que o Tesouro parou de oferecer e ainda não venceram. A única
+ * diferença entre os dois é a idade da última cotação. A janela precisa de folga
+ * para fim de semana e feriado longo (Carnaval emenda até 5 dias).
+ */
+const DIAS_JANELA_OFERTA = 10;
+
+/** Fração mínima de um título que o Tesouro vende (1%). */
+const FRACAO_MINIMA = 0.01;
+
+/**
+ * Converte o CSV do Tesouro Transparente no catálogo de títulos em oferta.
+ *
+ * Função PURA — é ela que os testes exercitam, sem rede. O download em streaming
+ * fica em scripts/fetch-tesouro.ts.
+ *
+ * O arquivo tem uma linha por título POR DIA desde 2004; o catálogo quer uma linha
+ * por título. Então, para cada título, vale a linha de `Data Base` mais recente —
+ * e o título só entra se essa data for recente (ver DIAS_JANELA_OFERTA).
+ */
+export function parsearCsvTesouro(csv: string, hoje: Date = new Date()): TituloTesouro[] {
+  const linhas = csv.split(/\r?\n/);
+  const col = indiceColunas(linhas[0] ?? "");
+  if (!col) return [];
+
+  /** Melhor linha por título, chaveada por tipo + vencimento. */
+  const melhores = new Map<string, { tipo: string; vencimento: string; dataBase: string; campos: string[] }>();
+
+  for (let i = 1; i < linhas.length; i++) {
+    const linha = linhas[i];
+    if (!linha.trim()) continue;
+    const campos = linha.split(";");
+
+    const tipo = (campos[col.tipo] ?? "").trim();
+    const vencimento = dataISO(campos[col.vencimento]);
+    const dataBase = dataISO(campos[col.dataBase]);
+    if (!tipo || !vencimento || !dataBase) continue; // linha truncada ou suja
+
+    const chave = `${tipo}|${vencimento}`;
+    const atual = melhores.get(chave);
+    if (!atual || dataBase > atual.dataBase) {
+      melhores.set(chave, { tipo, vencimento, dataBase, campos });
+    }
+  }
+
+  const hojeISO = iso(hoje);
+  const limiteOferta = iso(new Date(hoje.getTime() - DIAS_JANELA_OFERTA * 86_400_000));
   const out: TituloTesouro[] = [];
-  const vistos = new Set<string>();
 
-  for (const item of extrairLista(bruto)) {
-    const idx = indexar(item);
+  for (const m of melhores.values()) {
+    // Vencido não é comprável; cotação velha significa fora de oferta.
+    if (m.vencimento < hojeISO || m.dataBase < limiteOferta) continue;
 
-    const nome = String(pegar(idx, CHAVES.nome) ?? "").trim();
-    const vencimento = dataISO(pegar(idx, CHAVES.vencimento));
-    if (!nome || !vencimento) continue;
-
-    const slugBruto = pegar(idx, CHAVES.slug);
-    const slug = typeof slugBruto === "string" && slugBruto.trim() !== ""
-      ? slugBruto.trim()
-      : slugDe(nome, vencimento);
-    if (vistos.has(slug)) continue;
-    vistos.add(slug);
+    // O nome oficial junta o tipo e o ANO do vencimento: o arquivo traz
+    // "Tesouro IPCA+ com Juros Semestrais" + 2055, a tela mostra os dois juntos.
+    const nome = `${m.tipo} ${m.vencimento.slice(0, 4)}`;
+    const puCompra = numero(m.campos[col.puCompra]);
 
     out.push({
-      slug,
+      slug: slugDe(nome, m.vencimento),
       nome,
       indexador: indexadorDoNome(nome),
-      vencimento,
-      puCompra: numero(pegar(idx, CHAVES.puCompra)),
-      puVenda: numero(pegar(idx, CHAVES.puVenda)),
-      taxaCompra: numero(pegar(idx, CHAVES.taxaCompra)),
-      taxaVenda: numero(pegar(idx, CHAVES.taxaVenda)),
-      investimentoMinimo: numero(pegar(idx, CHAVES.investimentoMinimo)),
-      negociavel: booleano(pegar(idx, CHAVES.negociavel), true),
+      vencimento: m.vencimento,
+      dataBase: m.dataBase,
+      puCompra,
+      puVenda: numero(m.campos[col.puVenda]),
+      taxaCompra: numero(m.campos[col.taxaCompra]),
+      taxaVenda: numero(m.campos[col.taxaVenda]),
+      // DERIVADO, não publicado: o arquivo não tem essa coluna. O Tesouro vende a
+      // partir de 1% de um título, e é assim que o site chega em "R$ 32,21" para
+      // um PU de R$ 3.221,87.
+      investimentoMinimo: puCompra != null ? Math.round(puCompra * FRACAO_MINIMA * 100) / 100 : null,
+      // Chegar até aqui já significa estar em oferta (ver o filtro acima).
+      negociavel: true,
     });
   }
 
   out.sort((a, b) => a.vencimento.localeCompare(b.vencimento) || a.nome.localeCompare(b.nome));
   return out;
+}
+
+/** Posição de cada coluna que interessa, ou null se o cabeçalho não for o esperado. */
+function indiceColunas(cabecalho: string): Record<Coluna, number> | null {
+  // O BOM entra na primeira célula e estragaria o nome da primeira coluna.
+  const celulas = cabecalho.replace(/^﻿/, "").split(";").map(normalizarChave);
+  const idx = {} as Record<Coluna, number>;
+  for (const [campo, nome] of Object.entries(COLUNAS) as Array<[Coluna, string]>) {
+    const pos = celulas.indexOf(nome);
+    if (pos < 0) return null; // sem uma das colunas não há catálogo confiável
+    idx[campo] = pos;
+  }
+  return idx;
+}
+
+function iso(d: Date): string {
+  return d.toISOString().slice(0, 10);
 }

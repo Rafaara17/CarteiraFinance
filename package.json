@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "fetch-prices": "tsx scripts/fetch-prices.ts",
+    "fetch-tesouro": "tsx scripts/fetch-tesouro.ts",
     "fetch-dividends": "tsx scripts/fetch-dividends.ts",
     "fetch-history": "tsx scripts/fetch-history.ts"
   },

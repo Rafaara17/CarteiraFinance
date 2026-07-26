@@ -1,0 +1,45 @@
+name: Tesouro Direto (catálogo e PU)
+
+# Alimenta o CATÁLOGO de títulos (tabela tesouro_titulos) e o PU oficial que marca
+# a renda fixa a mercado (prices_latest.tesouro).
+#
+# Roda 1x/dia útil, e não de hora em hora como "Atualizar preços", porque o Tesouro
+# publica os preços uma vez ao dia — e o arquivo de origem tem ~35 MB (a série
+# desde 2004). Reler isso doze vezes por dia não mudaria um centavo.
+#
+# NÃO PRECISA DE TOKEN: a fonte é o Tesouro Transparente, portal de dados abertos
+# do próprio Tesouro Nacional.
+#
+# Para popular o catálogo agora (primeira vez, ou depois de mexer no schema):
+# "Run workflow" aqui.
+on:
+  # Dias úteis, 21:00 UTC (~18h BRT) — o arquivo do dia já está publicado.
+  schedule:
+    - cron: "0 21 * * 1-5"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tesouro
+  cancel-in-progress: true
+
+jobs:
+  tesouro:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Baixar catálogo do Tesouro Direto e gravar no Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npm run fetch-tesouro
