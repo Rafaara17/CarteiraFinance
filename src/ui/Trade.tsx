@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fmtBRL, fmtNum } from "../engine/report";
+import { rotuloIndexador, sufixoIndexador, type TituloTesouro } from "../engine/tesouro";
 import type { Ativo, ClasseAtivo, PortfolioSnapshot, PrecosSnapshot, TxTrade } from "../engine/types";
-import { registrarTransacao, upsertAtivo } from "../data/supabaseClient";
+import { carregarTitulosTesouro, registrarTransacao, upsertAtivo } from "../data/supabaseClient";
 import { classificarAtivo, cotacaoDolarOuSnapshot, precoDeMercado } from "../data/precoProvider";
 import type { AtivoClassificado } from "../data/precoProvider";
-import { sinal } from "./grafico";
+import { fmtDataLonga, sinal } from "./grafico";
 
 interface Props {
   snapshot: PortfolioSnapshot;
@@ -522,12 +523,15 @@ function Vender({ snapshot, precos, membro, carteiraId, onDone }: Props) {
 
 // ---------------------------------------------------------------------------
 
-function RendaFixa({ snapshot, precos, membro, carteiraId, onDone }: Props) {
-  const nomesTesouro = useMemo(() => Object.keys(precos.tesouro ?? {}), [precos]);
+function RendaFixa({ snapshot, membro, carteiraId, onDone }: Props) {
+  /** Catálogo oficial. null = ainda carregando; [] = Action nunca rodou. */
+  const [catalogo, setCatalogo] = useState<TituloTesouro[] | null>(null);
   const [isTesouro, setIsTesouro] = useState(true);
   const [ticker, setTicker] = useState("");
   const [nome, setNome] = useState("");
-  const [tesouroNome, setTesouroNome] = useState(nomesTesouro[0] ?? "");
+  const [slug, setSlug] = useState("");
+  /** Só usado quando o catálogo está vazio e a pessoa digita o nome à mão. */
+  const [tesouroNomeManual, setTesouroNomeManual] = useState("");
   const [indexador, setIndexador] = useState("IPCA");
   const [taxa, setTaxa] = useState("");
   const [dataCompra, setDataCompra] = useState(new Date().toISOString().slice(0, 10));
@@ -538,22 +542,73 @@ function RendaFixa({ snapshot, precos, membro, carteiraId, onDone }: Props) {
   const [msg, setMsg] = useState<{ tipo: "ok" | "erro"; texto: string } | null>(null);
   const [ocupado, setOcupado] = useState(false);
 
-  const puOficial = isTesouro && tesouroNome ? precos.tesouro?.[tesouroNome] : undefined;
-  const puEfetivo = puOficial ?? Number(puCompra);
+  // O catálogo vem da tabela `tesouro_titulos`, escrita só pela Action. Falha
+  // silenciosa de propósito: sem catálogo a tela degrada para entrada manual, que
+  // é melhor do que um erro vermelho impedindo a compra.
+  useEffect(() => {
+    let vivo = true;
+    carregarTitulosTesouro()
+      .then((ts) => vivo && setCatalogo(ts))
+      .catch(() => vivo && setCatalogo([]));
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  const titulos = catalogo ?? [];
+  const selecionado = titulos.find((t) => t.slug === slug) ?? null;
+
+  /**
+   * Preenche o formulário com os dados oficiais do título escolhido. O PU aqui é
+   * o de COMPRA (o que se paga), não o de resgate — o de resgate é o que marca a
+   * posição depois, e confundir os dois inflaria o custo registrado.
+   */
+  function escolherTitulo(novoSlug: string) {
+    setSlug(novoSlug);
+    const t = titulos.find((x) => x.slug === novoSlug);
+    if (!t) return;
+    setVencimento(t.vencimento);
+    setIndexador(t.indexador === "IGPM" ? "IGPM" : t.indexador);
+    setTaxa(t.taxaCompra != null ? String(t.taxaCompra) : "");
+    setPuCompra(t.puCompra != null ? String(t.puCompra) : "");
+    setNome(t.nome);
+  }
+
+  // Nome que identifica o título: do catálogo, ou o digitado na degradação.
+  const nomeTesouro = selecionado?.nome ?? tesouroNomeManual.trim();
+  /**
+   * O título oficial em vigor no formulário — null quando é CDB/título genérico
+   * ou quando ninguém escolheu nada ainda. É o que trava os campos que vêm da
+   * fonte. Guardar o objeto (e não um booleano) é o que deixa o TypeScript
+   * estreitar o tipo dentro dos ternários do JSX.
+   */
+  const oficial = isTesouro ? selecionado : null;
+  /** Só trava o PU se a fonte realmente informou um. */
+  const puTravado = oficial?.puCompra != null;
+  const puEfetivo = Number(puCompra);
   const q = Number(qtd);
   const custo = isFinite(q) && isFinite(puEfetivo) && q > 0 && puEfetivo > 0 ? q * puEfetivo : null;
 
   async function comprar() {
     setMsg(null);
     const pu = puEfetivo;
-    const vv = Number(valorVencimento);
-    const tk = (isTesouro ? tesouroNome : ticker.trim().toUpperCase()) || "";
+    const tk = (isTesouro ? nomeTesouro : ticker.trim().toUpperCase()) || "";
     if (!tk || !isFinite(q) || q <= 0 || !isFinite(pu) || pu <= 0) {
       setMsg({ tipo: "erro", texto: "Preencha título, quantidade e PU válidos." });
       return;
     }
-    if (!vencimento || !isFinite(vv) || vv <= 0) {
-      setMsg({ tipo: "erro", texto: "Informe vencimento e valor no vencimento (base da marcação linear)." });
+    if (!vencimento) {
+      setMsg({ tipo: "erro", texto: "Informe o vencimento do título." });
+      return;
+    }
+    // O valor no vencimento só alimenta o crescimento linear — a rede de segurança
+    // de quem não tem PU oficial. No Tesouro ele não é pedido: a marcação vem do
+    // PU oficial diário e, em IPCA+/Selic, não existe valor de face fixo para
+    // informar. Nos demais títulos continua obrigatório: sem ele o CDB não teria
+    // como crescer.
+    const vvEfetivo = isTesouro ? pu : Number(valorVencimento);
+    if (!isFinite(vvEfetivo) || vvEfetivo <= 0) {
+      setMsg({ tipo: "erro", texto: "Informe o valor no vencimento (base da marcação linear)." });
       return;
     }
     if (q * pu > snapshot.caixaBRL + 1e-6) {
@@ -571,13 +626,15 @@ function RendaFixa({ snapshot, precos, membro, carteiraId, onDone }: Props) {
         nome: nome.trim() || tk,
         bond: {
           isTesouro,
-          tesouroNome: isTesouro ? tesouroNome : undefined,
+          tesouroNome: isTesouro ? nomeTesouro : undefined,
+          // O slug é a chave estável do PU oficial; só existe se veio do catálogo.
+          tesouroSlug: isTesouro ? selecionado?.slug : undefined,
           indexador,
           taxaContratada: taxa ? Number(taxa) / 100 : undefined,
           dataCompra,
           vencimento,
           puCompra: pu,
-          valorVencimento: vv,
+          valorVencimento: vvEfetivo,
         },
       });
       const tx: TxTrade = {
@@ -610,17 +667,41 @@ function RendaFixa({ snapshot, precos, membro, carteiraId, onDone }: Props) {
       {isTesouro ? (
         <div className="campo">
           <label htmlFor="td">Título do Tesouro</label>
-          {nomesTesouro.length > 0 ? (
-            <select id="td" value={tesouroNome} onChange={(e) => setTesouroNome(e.target.value)}>
-              {nomesTesouro.map((n) => (
-                <option key={n} value={n}>{n} — PU {fmtNum(precos.tesouro[n], 2)}</option>
-              ))}
-            </select>
+          {titulos.length > 0 ? (
+            <>
+              <select id="td" value={slug} onChange={(e) => escolherTitulo(e.target.value)}>
+                <option value="">Escolha um título oficial…</option>
+                {titulos.map((t) => (
+                  <option key={t.slug} value={t.slug}>
+                    {t.nome} — vence {fmtDataLonga(t.vencimento)}
+                    {t.taxaCompra != null
+                      ? ` — ${fmtNum(t.taxaCompra, 2)}% a.a. ${sufixoIndexador(t.indexador) ?? ""}`.trimEnd()
+                      : ""}
+                    {t.puCompra != null ? ` — PU ${fmtNum(t.puCompra, 2)}` : ""}
+                  </option>
+                ))}
+              </select>
+              {selecionado && (
+                <p className="muted" style={{ fontSize: "0.78rem", marginTop: "0.3rem" }}>
+                  Vencimento, indexador, taxa e PU vieram do catálogo oficial. A marcação a
+                  mercado usará o PU de resgate
+                  {selecionado.puVenda != null ? ` (hoje ${fmtBRL(selecionado.puVenda)})` : ""},
+                  atualizado a cada dia útil.
+                </p>
+              )}
+            </>
           ) : (
             <>
-              <input id="td" value={tesouroNome} onChange={(e) => setTesouroNome(e.target.value)} placeholder="Tesouro IPCA+ 2035" />
+              <input
+                id="td"
+                value={tesouroNomeManual}
+                onChange={(e) => setTesouroNomeManual(e.target.value)}
+                placeholder="Tesouro IPCA+ 2035"
+              />
               <p className="muted" style={{ fontSize: "0.78rem", marginTop: "0.3rem" }}>
-                Os PUs oficiais chegam com a Action de preços. Enquanto isso, informe o PU manualmente.
+                {catalogo == null
+                  ? "Carregando o catálogo oficial…"
+                  : "Catálogo oficial vazio — ele chega com a rotina de preços. Enquanto isso, informe nome, vencimento e PU manualmente (a posição ficará com marcação linear até o título casar com o catálogo)."}
               </p>
             </>
           )}
@@ -640,43 +721,72 @@ function RendaFixa({ snapshot, precos, membro, carteiraId, onDone }: Props) {
 
       <div className="row">
         <div className="campo" style={{ flex: "1 1 130px" }}>
-          <label htmlFor="ix">Indexador</label>
-          <select id="ix" value={indexador} onChange={(e) => setIndexador(e.target.value)}>
-            <option value="PREFIXADO">Prefixado</option>
-            <option value="IPCA">IPCA+</option>
-            <option value="SELIC">Selic</option>
-            <option value="CDI">CDI</option>
-          </select>
+          <label htmlFor="ix">Indexador {oficial ? "(oficial)" : ""}</label>
+          {oficial ? (
+            // Não é um <select> porque o catálogo tem famílias que não cabem nas
+            // opções abaixo (Renda+, Educa+, IGP-M): um select mostraria vazio.
+            <input id="ix" value={rotuloIndexador(oficial.indexador)} disabled />
+          ) : (
+            <select id="ix" value={indexador} onChange={(e) => setIndexador(e.target.value)}>
+              <option value="PREFIXADO">Prefixado</option>
+              <option value="IPCA">IPCA+</option>
+              <option value="SELIC">Selic</option>
+              <option value="CDI">CDI</option>
+            </select>
+          )}
         </div>
         <div className="campo" style={{ flex: "1 1 110px" }}>
-          <label htmlFor="tx">Taxa a.a. (%)</label>
-          <input id="tx" value={taxa} onChange={(e) => setTaxa(e.target.value)} inputMode="decimal" placeholder="6,2" />
+          <label htmlFor="tx">Taxa a.a. (%) {oficial ? "(oficial)" : ""}</label>
+          <input
+            id="tx"
+            value={taxa}
+            onChange={(e) => setTaxa(e.target.value)}
+            disabled={oficial != null}
+            inputMode="decimal"
+            placeholder="6,2"
+          />
         </div>
         <div className="campo" style={{ flex: "1 1 150px" }}>
           <label htmlFor="dc">Data da compra</label>
           <input id="dc" type="date" value={dataCompra} onChange={(e) => setDataCompra(e.target.value)} />
         </div>
         <div className="campo" style={{ flex: "1 1 150px" }}>
-          <label htmlFor="vc">Vencimento</label>
-          <input id="vc" type="date" value={vencimento} onChange={(e) => setVencimento(e.target.value)} />
+          <label htmlFor="vc">Vencimento {oficial ? "(oficial)" : ""}</label>
+          <input
+            id="vc"
+            type="date"
+            value={vencimento}
+            onChange={(e) => setVencimento(e.target.value)}
+            disabled={oficial != null}
+          />
         </div>
       </div>
 
       <div className="row">
         <div className="campo" style={{ flex: "1 1 150px" }}>
-          <label htmlFor="pu">PU de compra {puOficial != null ? "(oficial)" : ""}</label>
+          <label htmlFor="pu">PU de compra {puTravado ? "(oficial)" : ""}</label>
           <input
             id="pu"
-            value={puOficial != null ? String(puOficial) : puCompra}
+            value={puCompra}
             onChange={(e) => setPuCompra(e.target.value)}
-            disabled={puOficial != null}
+            disabled={puTravado}
             inputMode="decimal"
           />
         </div>
-        <div className="campo" style={{ flex: "1 1 170px" }}>
-          <label htmlFor="vv">Valor no vencimento (PU)</label>
-          <input id="vv" value={valorVencimento} onChange={(e) => setValorVencimento(e.target.value)} inputMode="decimal" placeholder="1000" />
-        </div>
+        {/* Só na renda fixa genérica: é ela que cresce em linha reta até um valor
+            de face. No Tesouro a marcação vem do PU oficial diário. */}
+        {!isTesouro && (
+          <div className="campo" style={{ flex: "1 1 170px" }}>
+            <label htmlFor="vv">Valor no vencimento (PU)</label>
+            <input
+              id="vv"
+              value={valorVencimento}
+              onChange={(e) => setValorVencimento(e.target.value)}
+              inputMode="decimal"
+              placeholder="1000"
+            />
+          </div>
+        )}
         <div className="campo" style={{ flex: "1 1 120px" }}>
           <label htmlFor="qr">Quantidade</label>
           <input id="qr" value={qtd} onChange={(e) => setQtd(e.target.value)} inputMode="decimal" />

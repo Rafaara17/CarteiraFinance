@@ -17,8 +17,9 @@ Navegador (GitHub Pages, SPA React)
   ├─ lê/escreve dados      ─────────►  Postgres + RLS  (config, assets, transactions, prices, membros)
   ├─ cotação ao vivo       ─────────►  Edge Function `cotacoes` ──► Yahoo Finance
   └─ assina mudanças       ◄─────────  Supabase Realtime
-GitHub Actions (cron)      ─service role─►  prices_latest  (rede de segurança, de hora em hora)
-                           ─service role─►  prices_history (série diária p/ os gráficos)
+GitHub Actions (cron)      ─service role─►  prices_latest   (rede de segurança, de hora em hora)
+                           ─service role─►  tesouro_titulos (catálogo do Tesouro Direto) ──► brapi
+                           ─service role─►  prices_history  (série diária p/ os gráficos)
 ```
 
 - **Preço ao vivo, sem esperar cron.** Ao abrir o app, ele pede as cotações à Edge Function, que
@@ -37,8 +38,9 @@ GitHub Actions (cron)      ─service role─►  prices_latest  (rede de segura
 - **Nenhuma posição some do patrimônio.** Sem cotação disponível, a posição é avaliada **pelo custo**
   e marcada como “a custo” na tela. O dinheiro nunca desaparece do total.
 - **Dólar real e momentâneo.** Ativos em USD são convertidos pela cotação do momento da operação.
-- **Renda fixa:** Tesouro Direto marca pelo PU oficial; sem MtM, cresce **linearmente** do PU de
-  compra até o valor de vencimento.
+- **Renda fixa:** Tesouro Direto marca pelo **PU de resgate oficial**, atualizado a cada dia útil
+  (selo *PU oficial* nas Posições). CDB, debênture e afins não têm PU público, então crescem
+  **linearmente** do PU de compra até o valor de vencimento (selo *linear*).
 
 ---
 
@@ -117,8 +119,11 @@ Não precisa configurar segredo nenhum: `SUPABASE_URL`, `SUPABASE_ANON_KEY` e
    - `SUPABASE_URL` — a Project URL
    - `SUPABASE_ANON_KEY` — a chave `anon public` (usada no build do site)
    - `SUPABASE_SERVICE_ROLE_KEY` — a chave `service_role` (só nas Actions)
-   - `BRAPI_TOKEN` — **opcional**; se existir, a Brapi PRO é usada para refinar o histórico da B3.
-     Sem ele tudo funciona pelo Yahoo.
+   - `BRAPI_TOKEN` — **opcional, mas é o que liga o Tesouro Direto** (catálogo de títulos e PU
+     oficial diário). Também refina o histórico da B3. Sem ele ações, câmbio e índices funcionam
+     igual pelo Yahoo, e o Tesouro fica sem catálogo — títulos já comprados caem na marcação linear.
+     Cadastro gratuito em [brapi.dev](https://brapi.dev) (o plano grátis cobre de sobra: a Action
+     usa ~500 chamadas/mês).
 3. Push no `main` publica o site. O cron de **preços** roda dias úteis de hora em hora (rede de
    segurança), e o de **série histórica** 1×/dia após o fechamento.
 
@@ -129,6 +134,29 @@ preenchê-la agora, entre como admin e clique em **Admin → Série histórica �
 agora** — busca ~2 anos de fechamentos, do dólar e dos índices em alguns segundos. Depois disso a
 Action diária mantém a série crescendo (o upsert **nunca apaga**, então “Tudo/desde o início”
 continua correto anos depois).
+
+### 5. Tesouro Direto (catálogo e marcação a mercado)
+
+A tabela `tesouro_titulos` guarda o catálogo oficial — os títulos em oferta com vencimento,
+indexador, taxas, investimento mínimo e os PUs de compra e de resgate. Quem a preenche é a Action
+de preços, com a service role; o app só lê. É esse catálogo que alimenta a tela **Tesouro Direto**
+e a lista de títulos em **Operar → Renda fixa**, e é o **PU de resgate** que marca a mercado quem
+já tem o título.
+
+Para ligar, basta o secret `BRAPI_TOKEN` (passo 3) e esperar a Action rodar — ou dispará-la à mão em
+**Actions → Atualizar preços → Run workflow**.
+
+Dois pontos que valem saber:
+
+- **O dado é diário, não intradiário.** O Tesouro Transparente publica os PUs uma vez por dia útil.
+  A marcação a mercado é sempre o último fechamento divulgado — diferente das ações, que o app cota
+  de minuto a minuto.
+- **A API da B3 não serve para isso.** O endpoint `tesourodireto.com.br/.../treasurybondsinfo.json`
+  está atrás de Cloudflare com proteção anti-bot: funciona no navegador e devolve **403 para IP de
+  datacenter**, ou seja, falha justamente no runner da Action. Era a fonte antiga, e o efeito era
+  `prices_latest.tesouro` sempre vazio — todo título do Tesouro caindo na marcação linear. Por isso
+  a fonte passou a ser a brapi, que espelha o Tesouro Transparente. Ver o cabeçalho de
+  `src/engine/tesouro.ts`.
 
 ---
 
@@ -142,9 +170,16 @@ continua correto anos depois).
     mercado já vem preenchido**, editável. O app mostra custo total e caixa restante antes de você
     confirmar.
   - *Vender* — escolha a posição; o preço vem cotado (com botão de recotar) e é editável.
-  - *Renda fixa* — Tesouro Direto (PU oficial) ou título genérico (vencimento + valor no vencimento).
+  - *Renda fixa* — escolha o título na **lista oficial do Tesouro** e vencimento, indexador, taxa
+    e PU vêm preenchidos (o valor no vencimento não é pedido: a marcação vem do PU oficial); ou
+    cadastre um título genérico, que precisa de vencimento + valor no vencimento.
+- **Tesouro Direto:** catálogo oficial completo — vencimento, prazo, taxa contratada (com o que se
+  soma a ela: *+ Selic*, *+ IPCA*, *+ IGP-M*), investimento mínimo e os dois PUs (compra e resgate),
+  filtrável por família. O único recorte é o vencimento: título vencido não aparece, todo o resto
+  aparece. Tela de consulta, alimentada só pela Action.
 - **Posições:** preço médio, preço atual, variação do dia, P&L e peso com barra. Posições sem
-  cotação aparecem marcadas **a custo**.
+  cotação aparecem marcadas **a custo**; títulos do Tesouro com PU oficial ganham o selo
+  **PU oficial**, e renda fixa sem PU público fica **linear**.
 - **Alocação:** distribuição por classe, bolsa e moeda em barra empilhada + tabela.
 - **Relatório:** análise por período (este mês, 3m, 12m, tudo ou personalizado), rentabilidade
   contra os índices, retorno mês a mês, **Imprimir/PDF**, **baixar HTML** e **salvar snapshot**.
@@ -164,7 +199,7 @@ npm run build          # typecheck + build de produção
 npx supabase functions serve cotacoes
 
 # O que as Actions executam:
-SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... npm run fetch-prices
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... npm run fetch-prices    # BRAPI_TOKEN liga o Tesouro
 SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... npm run fetch-history   # BRAPI_TOKEN é opcional
 ```
 
@@ -174,9 +209,9 @@ SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... npm run fetch-history   # BRAPI_T
 supabase/schema.sql              # tabelas + RLS + seed + realtime + papéis (rode no SQL Editor)
 supabase/functions/cotacoes/     # Edge Function: cotação ao vivo, busca de ticker, série histórica
 src/
-  engine/                        # motor puro e testado: ledger, fx, bonds, portfolio, evolucao, report
+  engine/                        # motor puro e testado: ledger, fx, bonds, tesouro, portfolio, evolucao, report
   data/                          # supabase (client), session (auth), supabaseClient, cotacoes, precoProvider
-  ui/                            # Shell + Dashboard, Operar, Posições, Alocação, Relatório, Histórico, Admin
+  ui/                            # Shell + Dashboard, Operar, Posições, Alocação, Tesouro, Relatório, Histórico, Admin
   theme/tokens.css               # design system (marca + paleta de gráficos validada p/ daltonismo)
 scripts/fetch-prices.ts          # cron de preços -> prices_latest
 scripts/fetch-history.ts         # cron da série diária -> prices_history (Yahoo primário)

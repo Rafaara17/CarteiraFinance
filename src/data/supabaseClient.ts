@@ -15,6 +15,7 @@ import type {
   TxProvento,
   TxTrade,
 } from "../engine/types";
+import type { IndexadorTesouro, TituloTesouro } from "../engine/tesouro";
 import { supabase } from "./supabase";
 
 /** Id FIXO da carteira central da liga (semeado em supabase/schema.sql). */
@@ -172,6 +173,29 @@ export async function carregarHistorico(): Promise<HistoricoPrecos> {
     .order("data", { ascending: true });
   if (error) throw new Error(`prices_history: ${error.message}`);
   return (data ?? []).map(mapHistorico);
+}
+
+/**
+ * Catálogo oficial do Tesouro Direto (tabela `tesouro_titulos`), alimentado pela
+ * Action de preços.
+ *
+ * O ÚNICO recorte é o vencimento: título já vencido não é mais comprável e não
+ * tem por que ocupar a lista. Nada além disso filtra — a lista precisa ser a
+ * lista inteira, e um filtro a mais aqui viraria título faltando na tela sem
+ * ninguém entender por quê.
+ *
+ * Carregado sob demanda (tela do Tesouro e formulário de renda fixa), não no load
+ * inicial: quem nunca abre renda fixa não paga por esta consulta.
+ */
+export async function carregarTitulosTesouro(): Promise<TituloTesouro[]> {
+  const hoje = new Date().toISOString().slice(0, 10);
+  const { data, error } = await supabase
+    .from("tesouro_titulos")
+    .select("slug,nome,indexador,vencimento,pu_compra,pu_venda,taxa_compra,taxa_venda,investimento_minimo,negociavel")
+    .gte("vencimento", hoje)
+    .order("vencimento", { ascending: true });
+  if (error) throw new Error(`tesouro_titulos: ${error.message}`);
+  return (data ?? []).map(mapTitulo);
 }
 
 /** Salva um snapshot do relatório (HTML) no banco. */
@@ -361,6 +385,34 @@ interface LinhaHistorico {
   cambio: Record<string, number> | null;
   indices: Record<string, number> | null;
 }
+interface LinhaTitulo {
+  slug: string;
+  nome: string;
+  indexador: string | null;
+  vencimento: string;
+  pu_compra: unknown;
+  pu_venda: unknown;
+  taxa_compra: unknown;
+  taxa_venda: unknown;
+  investimento_minimo: unknown;
+  negociavel: boolean | null;
+}
+function mapTitulo(r: LinhaTitulo): TituloTesouro {
+  // numOpt() devolve undefined; o catálogo usa null para "a fonte não informou".
+  return {
+    slug: r.slug,
+    nome: r.nome,
+    indexador: (r.indexador ?? "OUTRO") as IndexadorTesouro,
+    vencimento: r.vencimento,
+    puCompra: numOpt(r.pu_compra) ?? null,
+    puVenda: numOpt(r.pu_venda) ?? null,
+    taxaCompra: numOpt(r.taxa_compra) ?? null,
+    taxaVenda: numOpt(r.taxa_venda) ?? null,
+    investimentoMinimo: numOpt(r.investimento_minimo) ?? null,
+    negociavel: r.negociavel ?? true,
+  };
+}
+
 function mapHistorico(r: LinhaHistorico): PontoHistorico {
   // Colunas jsonb: números vêm como números (o Postgres preserva o tipo JSON).
   return {

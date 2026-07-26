@@ -466,3 +466,59 @@ begin
     end if;
   end loop;
 end $$;
+
+-- ===========================================================================
+-- CATÁLOGO OFICIAL DO TESOURO DIRETO
+-- ---------------------------------------------------------------------------
+-- Espelho da lista de títulos ofertados, alimentado pela Action de preços
+-- (scripts/fetch-prices.ts, via brapi -> Tesouro Transparente).
+--
+-- POR QUE UMA TABELA, e não só o jsonb `prices_latest.tesouro`:
+--
+--  1. OVO E GALINHA. O formulário de compra listava os títulos a partir das
+--     chaves de `prices_latest.tesouro`, que só era preenchido para títulos JÁ
+--     presentes em `assets`. Ninguém conseguia escolher um título oficial antes
+--     de já ter um — então ninguém tinha nenhum. Aqui o catálogo existe
+--     independente da carteira.
+--  2. O catálogo tem mais do que um preço: vencimento, indexador, as duas taxas
+--     e o investimento mínimo. É isso que permite a tela de consulta (o
+--     "site do Tesouro" dentro do app) e o preenchimento automático na compra.
+--
+-- `slug` é a chave estável da fonte ("tesouro-ipca-2035-15052035"): sobrevive a
+-- uma renomeação do produto, o que o nome não faz.
+--
+-- ATENÇÃO: os PUs são de UM DIA ÚTIL (o Tesouro Transparente publica 1x/dia).
+-- Não existe PU intradiário; `atualizado_em` é quando NÓS lemos, não quando o
+-- Tesouro apurou.
+--
+-- SELECT para autenticados; ESCRITA só via service role => mesma garantia de
+-- "dados sempre oficiais" de prices_latest.
+-- ---------------------------------------------------------------------------
+create table if not exists public.tesouro_titulos (
+  slug                text primary key,
+  nome                text not null,
+  indexador           text,
+  vencimento          date not null,
+  pu_compra           numeric,
+  pu_venda            numeric,  -- base da marcação a mercado de quem já tem o título
+  taxa_compra         numeric,  -- % a.a.
+  taxa_venda          numeric,
+  investimento_minimo numeric,
+  negociavel          boolean not null default true,
+  atualizado_em       timestamptz not null default now()
+);
+
+alter table public.tesouro_titulos enable row level security;
+
+drop policy if exists tesouro_titulos_select on public.tesouro_titulos;
+create policy tesouro_titulos_select on public.tesouro_titulos
+  for select to authenticated using (true);
+-- (sem policy de escrita => só service role escreve)
+
+create index if not exists tesouro_titulos_vencimento_idx
+  on public.tesouro_titulos (vencimento);
+
+-- Fora do Realtime de propósito: o catálogo muda uma vez por dia e a Action grava
+-- dezenas de linhas de uma vez. Assinar isso viraria uma enxurrada de eventos para
+-- recarregar dado que não mudou. A tela do Tesouro busca sob demanda e tem botão
+-- de atualizar.

@@ -13,6 +13,8 @@ export interface ResultadoMtM {
  * Marcação a mercado de renda fixa.
  *
  * - Tesouro Direto: usa o PU OFICIAL do snapshot (fonte: Tesouro Transparente).
+ *   Procura primeiro pelo slug do catálogo e só depois pelo nome — o nome é a
+ *   compatibilidade com os ativos cadastrados antes do catálogo existir.
  *   Se o PU oficial não estiver disponível, cai no crescimento linear.
  * - Demais títulos (CDB/debênture/bond): **crescimento linear** do PU entre a
  *   compra e o vencimento, pela reta que liga puCompra -> valorVencimento.
@@ -32,14 +34,19 @@ export function marcarBond(
     return { puAtual: 0, marcacao: "linear" };
   }
 
-  if (meta.isTesouro && meta.tesouroNome) {
-    const puOficial = precos.tesouro?.[meta.tesouroNome];
-    if (typeof puOficial === "number" && puOficial > 0) {
-      return { puAtual: puOficial, marcacao: "mercado" };
-    }
+  if (meta.isTesouro) {
+    const puOficial = puDoSnapshot(precos, meta.tesouroSlug) ?? puDoSnapshot(precos, meta.tesouroNome);
+    if (puOficial != null) return { puAtual: puOficial, marcacao: "mercado" };
   }
 
   return { puAtual: crescimentoLinear(meta.puCompra, meta.valorVencimento, meta.dataCompra, meta.vencimento, hoje), marcacao: "linear" };
+}
+
+/** PU oficial de uma chave do snapshot, ou null se ausente/inválido. */
+function puDoSnapshot(precos: PrecosSnapshot, chave: string | undefined): number | null {
+  if (!chave) return null;
+  const pu = precos.tesouro?.[chave];
+  return typeof pu === "number" && pu > 0 ? pu : null;
 }
 
 /** Interpolação linear do PU entre a data de compra e o vencimento. */

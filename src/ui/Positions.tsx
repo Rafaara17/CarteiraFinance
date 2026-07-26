@@ -84,6 +84,11 @@ function Linha({ p }: { p: Posicao }) {
           {p.marcacao === "linear" && (
             <span className="badge" style={{ marginLeft: 6 }}>linear</span>
           )}
+          {/* Só na renda fixa: numa ação, marcar a mercado é o esperado e o selo
+              seria ruído. Num título, é a diferença entre PU oficial e reta. */}
+          {ehRF && p.marcacao === "mercado" && (
+            <span className="badge badge--marca" style={{ marginLeft: 6 }}>PU oficial</span>
+          )}
         </div>
         <div className="td-sub">
           {ROTULO_CLASSE[p.classe] ?? p.classe} · {p.bolsa}

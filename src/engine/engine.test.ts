@@ -93,6 +93,57 @@ describe("marcação a mercado de renda fixa", () => {
     expect(r.puAtual).toBe(3200);
   });
 
+  it("Tesouro acha o PU pelo slug do catálogo", () => {
+    const ativo: Ativo = {
+      id: "TD-IPCA-2035", tipo: "tesouro", ticker: "TD-IPCA-2035", bolsa: "TESOURO", moeda: "BRL",
+      nome: "Tesouro IPCA+ 2035",
+      bond: {
+        isTesouro: true, tesouroSlug: "tesouro-ipca-2035-15052035", tesouroNome: "Tesouro IPCA+ 2035",
+        dataCompra: "2026-01-01", vencimento: "2035-05-15", puCompra: 3000, valorVencimento: 5000,
+      },
+    };
+    // Só a chave por slug está no snapshot: o nome mudou na fonte e não casa mais.
+    const precos: PrecosSnapshot = {
+      atualizadoEm: null, cambio: {}, acoes: {},
+      tesouro: { "tesouro-ipca-2035-15052035": 3450 },
+    };
+    const r = marcarBond(ativo, precos, new Date("2027-01-01"));
+    expect(r.marcacao).toBe("mercado");
+    expect(r.puAtual).toBe(3450);
+  });
+
+  it("o slug ganha do nome quando os dois estão no snapshot", () => {
+    const ativo: Ativo = {
+      id: "TD-IPCA-2035", tipo: "tesouro", ticker: "TD-IPCA-2035", bolsa: "TESOURO", moeda: "BRL",
+      nome: "Tesouro IPCA+ 2035",
+      bond: {
+        isTesouro: true, tesouroSlug: "tesouro-ipca-2035-15052035", tesouroNome: "Tesouro IPCA+ 2035",
+        dataCompra: "2026-01-01", vencimento: "2035-05-15", puCompra: 3000, valorVencimento: 5000,
+      },
+    };
+    const precos: PrecosSnapshot = {
+      atualizadoEm: null, cambio: {}, acoes: {},
+      tesouro: { "tesouro-ipca-2035-15052035": 3450, "Tesouro IPCA+ 2035": 9999 },
+    };
+    expect(marcarBond(ativo, precos, new Date("2027-01-01")).puAtual).toBe(3450);
+  });
+
+  it("título genérico (CDB) ignora o PU do Tesouro e continua linear", () => {
+    const ativo: Ativo = {
+      id: "CDB-BANCOX-2028", tipo: "bond", ticker: "CDB-BANCOX-2028", bolsa: "OUTRA", moeda: "BRL",
+      nome: "CDB Banco X 120% CDI",
+      bond: { isTesouro: false, dataCompra: "2026-01-01", vencimento: "2028-01-01", puCompra: 1000, valorVencimento: 1300 },
+    };
+    // Snapshot cheio de PUs oficiais: nenhum deles pode valer para um CDB.
+    const precos: PrecosSnapshot = {
+      atualizadoEm: null, cambio: {}, acoes: {},
+      tesouro: { "CDB-BANCOX-2028": 5000, "CDB Banco X 120% CDI": 5000 },
+    };
+    const r = marcarBond(ativo, precos, new Date("2027-01-01"));
+    expect(r.marcacao).toBe("linear");
+    expect(r.puAtual).toBeCloseTo(1150, 2); // metade do caminho entre 1000 e 1300
+  });
+
   it("Tesouro cai no crescimento linear se não houver PU oficial", () => {
     const ativo: Ativo = {
       id: "TD-IPCA-2035", tipo: "tesouro", ticker: "TD-IPCA-2035", bolsa: "TESOURO", moeda: "BRL",
