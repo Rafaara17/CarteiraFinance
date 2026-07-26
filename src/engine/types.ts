@@ -23,6 +23,13 @@ export interface BondMeta {
   isTesouro: boolean;
   /** Chave para casar com a série oficial de PU (ex.: "Tesouro IPCA+ 2035"). */
   tesouroNome?: string;
+  /**
+   * Slug do título no catálogo oficial (ex.: "tesouro-ipca-2035-15052035").
+   * Chave PREFERIDA para achar o PU: ao contrário do nome, não muda se o Tesouro
+   * reescrever o rótulo do produto. Ausente nos ativos cadastrados antes do
+   * catálogo existir — daí `marcarBond` ainda aceitar o nome como alternativa.
+   */
+  tesouroSlug?: string;
 }
 
 /** Ativo registrado (ações/ETF/FII/tesouro/bond). Vive em data/assets.json. */

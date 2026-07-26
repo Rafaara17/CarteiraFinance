@@ -14,6 +14,7 @@ import { Positions } from "./ui/Positions";
 import { Report } from "./ui/Report";
 import { useEscopo } from "./ui/SeletorCarteira";
 import { Shell, type ItemNav } from "./ui/Shell";
+import { Tesouro } from "./ui/Tesouro";
 import { Trade } from "./ui/Trade";
 import { useLeagueData } from "./ui/useLeagueData";
 
@@ -60,6 +61,7 @@ export function App() {
     ...(podeOperar ? [{ id: "operar", rotulo: "Operar", ico: "⇄" }] : []),
     { id: "posicoes", rotulo: "Posições", curto: "Posições", ico: "☰" },
     { id: "alocacao", rotulo: "Alocação", ico: "◔" },
+    { id: "tesouro", rotulo: "Tesouro Direto", curto: "Tesouro", ico: "▦" },
     { id: "relatorio", rotulo: "Relatório", curto: "Relat.", ico: "▤" },
     { id: "historico", rotulo: "Histórico", curto: "Hist.", ico: "↻" },
     { id: "comparar", rotulo: "Comparar", ico: "⚖" },
@@ -119,6 +121,10 @@ export function App() {
     if (aba === "admin" && dados.ehAdmin) {
       return <Admin membros={dados.membros} meuUserId={uid} atualizarPapelMembro={dados.atualizarPapelMembro} />;
     }
+
+    // O catálogo do Tesouro é consulta pura da lista oficial de títulos: não
+    // depende de carteira, de config nem de snapshot de preços.
+    if (aba === "tesouro") return <Tesouro />;
 
     if (!config || !precos) {
       return (

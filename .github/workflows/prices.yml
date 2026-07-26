@@ -30,6 +30,10 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Token Brapi — OPCIONAL e secreto (nunca vai para o site). É o que
+          # alimenta o CATÁLOGO e o PU oficial do Tesouro Direto. Sem ele o passo
+          # roda igual (ações e câmbio seguem normais) e só o Tesouro não atualiza.
+          BRAPI_TOKEN: ${{ secrets.BRAPI_TOKEN }}
         run: npm run fetch-prices
 
       - name: Creditar proventos (Yahoo) no Supabase

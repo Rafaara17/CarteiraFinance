@@ -8,13 +8,22 @@
  *
  * Env necessárias (secrets da Action):
  *   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+ *   BRAPI_TOKEN — OPCIONAL, só para o Tesouro Direto. Sem ele o script roda
+ *   igual e apenas não atualiza o catálogo/PU do Tesouro.
  *
- * Fontes (todas SEM chave de API):
- *  - Ações (B3, NYSE, NASDAQ): Yahoo Finance (B3 usa sufixo ".SA")
- *  - Câmbio USD/BRL:           AwesomeAPI (cotação real momentânea)
- *  - Tesouro Direto:           API oficial do Tesouro Direto (PU de resgate)
+ * Fontes:
+ *  - Ações (B3, NYSE, NASDAQ): Yahoo Finance (B3 usa sufixo ".SA"), sem chave
+ *  - Câmbio USD/BRL:           AwesomeAPI (cotação real momentânea), sem chave
+ *  - Tesouro Direto:           brapi /api/v2/treasury (espelho do Tesouro
+ *                              Transparente), com token
+ *
+ * Por que o Tesouro não vem mais da API da B3: aquele endpoint
+ * (tesourodireto.com.br/.../treasurybondsinfo.json) está atrás de Cloudflare com
+ * proteção anti-bot e devolve 403 para IP de datacenter — ou seja, sempre falhava
+ * justamente aqui, no runner da Action. Ver o cabeçalho de src/engine/tesouro.ts.
  */
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { mapaPUs, mapearTitulos, puDeMarcacao, type TituloTesouro } from "../src/engine/tesouro";
 
 interface AtivoLite {
   ticker: string;
@@ -23,7 +32,6 @@ interface AtivoLite {
   moeda: string;
   /** símbolo resolvido pela Edge Function (ex.: "PETR4.SA"); evita adivinhar. */
   yahoo_symbol?: string | null;
-  bond?: { isTesouro?: boolean; tesouroNome?: string } | null;
 }
 
 interface Snapshot {
@@ -31,7 +39,15 @@ interface Snapshot {
   fonte: string;
   cambio: Record<string, number>;
   acoes: Record<string, number>;
-  tesouro: Record<string, number>;
+  /**
+   * PU oficial por título do Tesouro (chaveado por slug E por nome).
+   *
+   * OPCIONAL de propósito: o upsert do PostgREST só mexe nas colunas que recebe.
+   * Deixar a chave de fora quando a busca falha PRESERVA o snapshot anterior —
+   * antes, um `tesouro: {}` sobrescrevia e zerava os PUs do dia, jogando toda a
+   * renda fixa de volta para o crescimento linear.
+   */
+  tesouro?: Record<string, number>;
   /** fechamento do pregão anterior — base da variação do dia na interface. */
   fechamento_anterior: Record<string, number>;
 }
@@ -41,7 +57,7 @@ async function main() {
   const serviceKey = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
   const db = createClient(url, serviceKey, { auth: { persistSession: false } });
 
-  const { data: ativos, error } = await db.from("assets").select("ticker,tipo,bolsa,moeda,bond,yahoo_symbol");
+  const { data: ativos, error } = await db.from("assets").select("ticker,tipo,bolsa,moeda,yahoo_symbol");
   if (error) throw new Error(`Falha ao ler assets: ${error.message}`);
   const lista = (ativos ?? []) as AtivoLite[];
 
@@ -50,7 +66,6 @@ async function main() {
     fonte: "yahoo finance + awesomeapi + tesouro direto",
     cambio: { BRL: 1 },
     acoes: {},
-    tesouro: {},
     fechamento_anterior: {},
   };
 
@@ -84,19 +99,24 @@ async function main() {
     }
   }
 
-  // --- Tesouro Direto (PU oficial de resgate) ---
-  const querTesouro = lista.some((a) => a.bond?.isTesouro);
-  if (querTesouro) {
+  // --- Tesouro Direto: catálogo oficial + PU de resgate ---
+  //
+  // Busca SEMPRE a lista inteira, mesmo que a carteira não tenha nenhum título.
+  // Antes, só buscava se já existisse um título cadastrado — e como a lista de
+  // títulos do formulário de compra vinha justamente daqui, ninguém conseguia
+  // cadastrar o primeiro. O catálogo tem de existir antes da primeira compra.
+  const brapiToken = process.env.BRAPI_TOKEN;
+  if (!brapiToken) {
+    console.warn("BRAPI_TOKEN ausente: catálogo e PU do Tesouro Direto não serão atualizados.");
+  } else {
     try {
-      const pus = await tesouroDireto();
-      const nomes = new Set(
-        lista.filter((a) => a.bond?.isTesouro && a.bond.tesouroNome).map((a) => a.bond!.tesouroNome!),
-      );
-      for (const [nome, pu] of Object.entries(pus)) {
-        if (nomes.size === 0 || nomes.has(nome)) snap.tesouro[nome] = pu;
-      }
-      console.log(`Tesouro: ${Object.keys(snap.tesouro).length} títulos`);
+      const titulos = await tesouroDireto(brapiToken);
+      snap.tesouro = mapaPUs(titulos);
+      await gravarCatalogo(db, titulos);
+      const comPU = titulos.filter((t) => puDeMarcacao(t) != null).length;
+      console.log(`Tesouro: ${titulos.length} títulos no catálogo, ${comPU} com PU oficial.`);
     } catch (e) {
+      // Não zera `snap.tesouro`: a chave fica ausente e o PU de ontem sobrevive.
       console.warn("Falha Tesouro Direto:", msg(e));
     }
   }
@@ -142,20 +162,57 @@ async function precoYahoo(symbol: string): Promise<{ preco: number; fechamentoAn
   return { preco: p, fechamentoAnterior: typeof anterior === "number" && anterior > 0 ? anterior : null };
 }
 
-/** API oficial do Tesouro Direto: nome -> PU de resgate (marcação a mercado). */
-async function tesouroDireto(): Promise<Record<string, number>> {
-  const r = await fetch("https://www.tesourodireto.com.br/json/br/com/b3/tesourodireto/service/api/treasurybondsinfo.json");
-  const j = (await r.json()) as {
-    response?: { TrsrBdTradgList?: Array<{ TrsrBd?: { nm?: string; untrRedVal?: number } }> };
-  };
-  const out: Record<string, number> = {};
-  for (const item of j.response?.TrsrBdTradgList ?? []) {
-    const nome = item.TrsrBd?.nm;
-    const pu = item.TrsrBd?.untrRedVal;
-    if (nome && typeof pu === "number" && pu > 0) out[nome] = pu;
+const BRAPI_TESOURO = "https://brapi.dev/api/v2/treasury";
+
+/**
+ * Catálogo do Tesouro Direto pela brapi (espelho do Tesouro Transparente).
+ *
+ * O parsing fica em `mapearTitulos` (src/engine/tesouro.ts), que é puro,
+ * testado e tolerante ao nome exato dos campos.
+ */
+async function tesouroDireto(token: string): Promise<TituloTesouro[]> {
+  const r = await fetch(BRAPI_TESOURO, {
+    headers: { Authorization: `Bearer ${token}`, "User-Agent": "CarteiraFinance" },
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const bruto: unknown = await r.json();
+  const titulos = mapearTitulos(bruto);
+  if (titulos.length === 0) {
+    // Contrato diferente do esperado (ou token sem acesso ao endpoint). Mostra a
+    // resposta crua no log da Action: é o único jeito de descobrir o formato novo
+    // sem ficar adivinhando nomes de campo.
+    throw new Error(`nenhum título reconhecido. Resposta crua: ${amostra(bruto)}`);
   }
-  if (Object.keys(out).length === 0) throw new Error("sem PUs do Tesouro");
-  return out;
+  return titulos;
+}
+
+/** Espelha o catálogo em `tesouro_titulos`. Upsert por slug: nada é apagado. */
+async function gravarCatalogo(db: SupabaseClient, titulos: TituloTesouro[]): Promise<void> {
+  const agora = new Date().toISOString();
+  const linhas = titulos.map((t) => ({
+    slug: t.slug,
+    nome: t.nome,
+    indexador: t.indexador,
+    vencimento: t.vencimento,
+    pu_compra: t.puCompra,
+    pu_venda: t.puVenda,
+    taxa_compra: t.taxaCompra,
+    taxa_venda: t.taxaVenda,
+    investimento_minimo: t.investimentoMinimo,
+    negociavel: t.negociavel,
+    atualizado_em: agora,
+  }));
+  const { error } = await db.from("tesouro_titulos").upsert(linhas, { onConflict: "slug" });
+  if (error) throw new Error(`tesouro_titulos: ${error.message}`);
+}
+
+/** Trecho da resposta crua — o bastante para reconhecer o formato no log. */
+function amostra(bruto: unknown): string {
+  try {
+    return JSON.stringify(bruto).slice(0, 600);
+  } catch {
+    return String(bruto);
+  }
 }
 
 function msg(e: unknown): string {
