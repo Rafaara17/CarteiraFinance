@@ -72,6 +72,30 @@ export function rotuloIndexador(i: IndexadorTesouro): string {
 }
 
 /**
+ * O que se SOMA à taxa contratada, para a taxa poder ser lida sem ambiguidade.
+ *
+ * Uma taxa de 0,05% num Tesouro Selic não é o rendimento do título: é o spread
+ * SOBRE a Selic. Sem o sufixo, a coluna de taxa mente — o Selic pareceria o pior
+ * título da lista, e não o mais previsível. Só o Prefixado tem taxa absoluta e
+ * portanto não leva sufixo.
+ */
+export function sufixoIndexador(i: IndexadorTesouro): string | null {
+  switch (i) {
+    case "SELIC":
+      return "+ Selic";
+    case "IPCA":
+    // Renda+ e Educa+ são produtos distintos, mas ambos corrigidos pelo IPCA.
+    case "RENDA+":
+    case "EDUCA+":
+      return "+ IPCA";
+    case "IGPM":
+      return "+ IGP-M";
+    default:
+      return null;
+  }
+}
+
+/**
  * Indexador a partir do nome oficial. A ordem importa: "Tesouro Renda+" e
  * "Tesouro Educa+" também são indexados ao IPCA, mas são produtos distintos e o
  * nome deles precisa ganhar do teste de IPCA.
@@ -169,7 +193,10 @@ const CHAVES = {
     "minimuminvestment", "minimuminvestmentamount", "minimumamount", "investimentominimo",
     "mininvestmentamount", "minvstmtamt",
   ],
-  negociavel: ["tradable", "istradable", "available", "isavailable", "negociavel", "active"],
+  // Só nomes que falam explicitamente de negociabilidade. Um "active" genérico
+  // entrava aqui e podia casar com um campo sem relação nenhuma, marcando o
+  // título como fora de oferta e escondendo-o do catálogo.
+  negociavel: ["tradable", "istradable", "available", "isavailable", "negociavel"],
 } as const;
 
 /** Onde a lista de títulos pode estar dentro do envelope da resposta. */

@@ -177,8 +177,12 @@ export async function carregarHistorico(): Promise<HistoricoPrecos> {
 
 /**
  * Catálogo oficial do Tesouro Direto (tabela `tesouro_titulos`), alimentado pela
- * Action de preços. Devolve só o que está sendo ofertado — vencidos ficam fora,
- * como no site do Tesouro.
+ * Action de preços.
+ *
+ * O ÚNICO recorte é o vencimento: título já vencido não é mais comprável e não
+ * tem por que ocupar a lista. Nada além disso filtra — a lista precisa ser a
+ * lista inteira, e um filtro a mais aqui viraria título faltando na tela sem
+ * ninguém entender por quê.
  *
  * Carregado sob demanda (tela do Tesouro e formulário de renda fixa), não no load
  * inicial: quem nunca abre renda fixa não paga por esta consulta.
@@ -188,7 +192,6 @@ export async function carregarTitulosTesouro(): Promise<TituloTesouro[]> {
   const { data, error } = await supabase
     .from("tesouro_titulos")
     .select("slug,nome,indexador,vencimento,pu_compra,pu_venda,taxa_compra,taxa_venda,investimento_minimo,negociavel")
-    .eq("negociavel", true)
     .gte("vencimento", hoje)
     .order("vencimento", { ascending: true });
   if (error) throw new Error(`tesouro_titulos: ${error.message}`);

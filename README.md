@@ -171,10 +171,12 @@ Dois pontos que valem saber:
     confirmar.
   - *Vender* — escolha a posição; o preço vem cotado (com botão de recotar) e é editável.
   - *Renda fixa* — escolha o título na **lista oficial do Tesouro** e vencimento, indexador, taxa
-    e PU vêm preenchidos; ou cadastre um título genérico (vencimento + valor no vencimento).
-- **Tesouro Direto:** catálogo oficial dos títulos em oferta — vencimento, prazo, taxa contratada,
-  investimento mínimo e os dois PUs (compra e resgate), filtráveis por família (Selic, Prefixado,
-  IPCA+, Renda+, Educa+). Tela de consulta, alimentada só pela Action.
+    e PU vêm preenchidos (o valor no vencimento não é pedido: a marcação vem do PU oficial); ou
+    cadastre um título genérico, que precisa de vencimento + valor no vencimento.
+- **Tesouro Direto:** catálogo oficial completo — vencimento, prazo, taxa contratada (com o que se
+  soma a ela: *+ Selic*, *+ IPCA*, *+ IGP-M*), investimento mínimo e os dois PUs (compra e resgate),
+  filtrável por família. O único recorte é o vencimento: título vencido não aparece, todo o resto
+  aparece. Tela de consulta, alimentada só pela Action.
 - **Posições:** preço médio, preço atual, variação do dia, P&L e peso com barra. Posições sem
   cotação aparecem marcadas **a custo**; títulos do Tesouro com PU oficial ganham o selo
   **PU oficial**, e renda fixa sem PU público fica **linear**.

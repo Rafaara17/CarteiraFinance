@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { fmtBRL, fmtNum } from "../engine/report";
-import { rotuloIndexador, type IndexadorTesouro, type TituloTesouro } from "../engine/tesouro";
+import { rotuloIndexador, sufixoIndexador, type IndexadorTesouro, type TituloTesouro } from "../engine/tesouro";
 import { carregarTitulosTesouro } from "../data/supabaseClient";
 import { fmtDataLonga } from "./grafico";
 
@@ -106,8 +106,10 @@ export function Tesouro() {
       <div className="card">
         <div className="card__cab">
           <h3>Tesouro Direto</h3>
+          {/* "no catálogo", não "ofertados": a lista não filtra negociabilidade,
+              justamente para nenhum título desaparecer da tela sem explicação. */}
           <span className="muted">
-            {titulos!.length} {titulos!.length === 1 ? "título ofertado" : "títulos ofertados"} · dados oficiais do Tesouro Nacional
+            {titulos!.length} {titulos!.length === 1 ? "título" : "títulos"} no catálogo · dados oficiais do Tesouro Nacional
           </span>
           <div className="spacer" />
           <button
@@ -165,19 +167,6 @@ export function Tesouro() {
         </div>
       </div>
 
-      <div className="aviso">
-        <strong>Como ler esta tela.</strong> A <em>taxa de compra</em> é o que você trava ao
-        comprar hoje — nos títulos IPCA+ ela vem <em>somada</em> à inflação. O{" "}
-        <em>PU de compra</em> é o preço de um título inteiro, mas dá para comprar fração:
-        o mínimo é o valor da coluna <em>investimento mínimo</em>. O <em>PU de venda</em> é
-        quanto o Tesouro paga para recomprar o título hoje — é ele que marca a sua posição a
-        mercado em <em>Posições</em>, e é por isso que um título pode valer menos do que você
-        pagou antes do vencimento.
-        <br />
-        <br />
-        Os preços são publicados pelo Tesouro <strong>uma vez por dia útil</strong>: esta tela
-        mostra o último fechamento divulgado, não uma cotação de agora.
-      </div>
     </div>
   );
 }
@@ -195,8 +184,12 @@ function Linha({ t }: { t: TituloTesouro }) {
       </td>
       <td className="right nowrap">
         {t.taxaCompra == null ? <span className="fraco">—</span> : `${fmtNum(t.taxaCompra, 2)}% a.a.`}
-        {t.indexador === "IPCA" && t.taxaCompra != null && <div className="td-sub">+ IPCA</div>}
-        {t.indexador === "IGPM" && t.taxaCompra != null && <div className="td-sub">+ IGP-M</div>}
+        {/* Num título indexado, a taxa sozinha engana: 0,05% no Selic é o spread
+            sobre a Selic, não o rendimento. O sufixo vale para todas as famílias
+            indexadas, não só IPCA+. */}
+        {t.taxaCompra != null && sufixoIndexador(t.indexador) && (
+          <div className="td-sub">{sufixoIndexador(t.indexador)}</div>
+        )}
       </td>
       <td className="right">
         {t.investimentoMinimo == null ? <span className="fraco">—</span> : fmtBRL(t.investimentoMinimo)}

@@ -8,6 +8,7 @@ import {
   ofertados,
   puDeMarcacao,
   slugDe,
+  sufixoIndexador,
   type TituloTesouro,
 } from "./tesouro";
 
@@ -41,6 +42,22 @@ describe("indexadorDoNome", () => {
   it("Renda+ e Educa+ ganham do teste de IPCA, apesar de indexados a ele", () => {
     expect(indexadorDoNome("Tesouro Renda+ Aposentadoria Extra 2065")).toBe("RENDA+");
     expect(indexadorDoNome("Tesouro Educa+ 2030")).toBe("EDUCA+");
+  });
+});
+
+describe("sufixoIndexador", () => {
+  it("diz o que se soma à taxa em cada família indexada", () => {
+    expect(sufixoIndexador("SELIC")).toBe("+ Selic");
+    expect(sufixoIndexador("IPCA")).toBe("+ IPCA");
+    expect(sufixoIndexador("IGPM")).toBe("+ IGP-M");
+    // Produtos diferentes, mas corrigidos pelo IPCA.
+    expect(sufixoIndexador("RENDA+")).toBe("+ IPCA");
+    expect(sufixoIndexador("EDUCA+")).toBe("+ IPCA");
+  });
+
+  it("Prefixado não leva sufixo — a taxa dele é absoluta", () => {
+    expect(sufixoIndexador("PREFIXADO")).toBeNull();
+    expect(sufixoIndexador("OUTRO")).toBeNull();
   });
 });
 

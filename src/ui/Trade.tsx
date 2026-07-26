@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { fmtBRL, fmtNum } from "../engine/report";
-import { rotuloIndexador, type TituloTesouro } from "../engine/tesouro";
+import { rotuloIndexador, sufixoIndexador, type TituloTesouro } from "../engine/tesouro";
 import type { Ativo, ClasseAtivo, PortfolioSnapshot, PrecosSnapshot, TxTrade } from "../engine/types";
 import { carregarTitulosTesouro, registrarTransacao, upsertAtivo } from "../data/supabaseClient";
 import { classificarAtivo, cotacaoDolarOuSnapshot, precoDeMercado } from "../data/precoProvider";
@@ -602,13 +602,12 @@ function RendaFixa({ snapshot, membro, carteiraId, onDone }: Props) {
       return;
     }
     // O valor no vencimento só alimenta o crescimento linear — a rede de segurança
-    // de quem não tem PU oficial. Num título do Tesouro ele é dispensável (a
-    // marcação vem do PU diário) e, em IPCA+/Selic, nem existe valor de face fixo
-    // para informar. Nos demais títulos continua obrigatório: sem ele o CDB não
-    // teria como crescer.
-    const vv = Number(valorVencimento);
-    const vvEfetivo = isFinite(vv) && vv > 0 ? vv : isTesouro ? pu : 0;
-    if (vvEfetivo <= 0) {
+    // de quem não tem PU oficial. No Tesouro ele não é pedido: a marcação vem do
+    // PU oficial diário e, em IPCA+/Selic, não existe valor de face fixo para
+    // informar. Nos demais títulos continua obrigatório: sem ele o CDB não teria
+    // como crescer.
+    const vvEfetivo = isTesouro ? pu : Number(valorVencimento);
+    if (!isFinite(vvEfetivo) || vvEfetivo <= 0) {
       setMsg({ tipo: "erro", texto: "Informe o valor no vencimento (base da marcação linear)." });
       return;
     }
@@ -675,7 +674,9 @@ function RendaFixa({ snapshot, membro, carteiraId, onDone }: Props) {
                 {titulos.map((t) => (
                   <option key={t.slug} value={t.slug}>
                     {t.nome} — vence {fmtDataLonga(t.vencimento)}
-                    {t.taxaCompra != null ? ` — ${fmtNum(t.taxaCompra, 2)}% a.a.` : ""}
+                    {t.taxaCompra != null
+                      ? ` — ${fmtNum(t.taxaCompra, 2)}% a.a. ${sufixoIndexador(t.indexador) ?? ""}`.trimEnd()
+                      : ""}
                     {t.puCompra != null ? ` — PU ${fmtNum(t.puCompra, 2)}` : ""}
                   </option>
                 ))}
@@ -772,22 +773,20 @@ function RendaFixa({ snapshot, membro, carteiraId, onDone }: Props) {
             inputMode="decimal"
           />
         </div>
-        <div className="campo" style={{ flex: "1 1 170px" }}>
-          <label htmlFor="vv">Valor no vencimento (PU) {isTesouro ? "— opcional" : ""}</label>
-          <input
-            id="vv"
-            value={valorVencimento}
-            onChange={(e) => setValorVencimento(e.target.value)}
-            inputMode="decimal"
-            placeholder={isTesouro ? "só como reserva" : "1000"}
-          />
-          {isTesouro && (
-            <p className="muted" style={{ fontSize: "0.78rem", marginTop: "0.3rem" }}>
-              No Tesouro a marcação vem do PU oficial diário, então este campo só serve de
-              reserva se o PU faltar. IPCA+ e Selic nem têm valor de face fixo.
-            </p>
-          )}
-        </div>
+        {/* Só na renda fixa genérica: é ela que cresce em linha reta até um valor
+            de face. No Tesouro a marcação vem do PU oficial diário. */}
+        {!isTesouro && (
+          <div className="campo" style={{ flex: "1 1 170px" }}>
+            <label htmlFor="vv">Valor no vencimento (PU)</label>
+            <input
+              id="vv"
+              value={valorVencimento}
+              onChange={(e) => setValorVencimento(e.target.value)}
+              inputMode="decimal"
+              placeholder="1000"
+            />
+          </div>
+        )}
         <div className="campo" style={{ flex: "1 1 120px" }}>
           <label htmlFor="qr">Quantidade</label>
           <input id="qr" value={qtd} onChange={(e) => setQtd(e.target.value)} inputMode="decimal" />
