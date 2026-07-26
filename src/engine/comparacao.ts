@@ -4,11 +4,9 @@
 // só um conjunto de transações replayado sobre o mesmo capital inicial fixo, o
 // que torna os retornos diretamente comparáveis.
 //
-// DORMENTE: nenhuma tela usa este módulo hoje — a carteira pessoal saiu da
-// interface e o app é só a carteira da liga. Mantido (com testes passando)
-// porque o banco continua suportando multi-carteira: reativar a comparação é
-// escrever a UI de novo, sem migração. Ver forkCarteiraPessoal em
-// data/supabaseClient.ts.
+// Aqui o ranking é ACUMULADO (desde o início). O ranking que vale para a disputa
+// da liga é o semanal, em engine/semanal.ts, que consome estes mesmos números
+// para a coluna de acumulado.
 
 import { computarPortfolio } from "./portfolio";
 import type { Ativo, Config, PortfolioSnapshot, PrecosSnapshot, Transacao } from "./types";

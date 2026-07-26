@@ -224,11 +224,15 @@ a:hover { text-decoration: underline; }
 
 /* barra inferior no celular */
 .mobile-nav { display: none; }
+/* cópia do seletor de carteira que só aparece quando a lateral some */
+.seletor-mobile { display: none; }
 
 @media (max-width: 900px) {
   .app { grid-template-columns: 1fr; }
   .lateral { display: none; }
   .topo { padding: 0.65rem 1rem; }
+  /* a lateral sumiu: o seletor de carteira passa a viver no topo */
+  .seletor-mobile { display: block; flex-basis: 100%; order: 3; }
   .conteudo { padding: 1rem 1rem 5.5rem; }
   .mobile-nav {
     display: flex;
@@ -437,6 +441,37 @@ tbody tr:last-child td { border-bottom: none; }
   background: var(--superficie); color: var(--texto);
   box-shadow: var(--sombra);
 }
+
+/* -------------------------------------------------------------------------
+   ESCOPO DE CARTEIRA — liga (marinho da marca) vs. pessoal (roxo).
+   A cor é reforço: quem informa é o rótulo no topo e o seletor. Por isso o
+   --marca NÃO é remapeado (repintaria o app inteiro e confundiria a identidade
+   da liga), e o vermelho --acento está fora: colide com --neg, o sinal de queda.
+   ------------------------------------------------------------------------- */
+.app { --escopo: var(--marca); }
+.app[data-escopo="pessoal"] { --escopo: var(--serie-7); }
+
+.segmented--escopo { display: flex; width: 100%; }
+.segmented--escopo button { flex: 1; white-space: nowrap; }
+.segmented--escopo button.ativo { background: var(--escopo); color: #fff; }
+
+/* na lateral escura o trilho precisa de fundo próprio */
+.lateral .segmented--escopo {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+.lateral .segmented--escopo button { color: var(--lateral-texto); }
+.lateral .segmented--escopo button:hover { color: #fff; }
+.lateral .segmented--escopo button.ativo { color: #fff; }
+
+/* faixa permanente: a única coisa que atravessa o topo inteiro */
+.topo { border-top: 3px solid var(--escopo); }
+.topo__carteira { display: flex; align-items: center; gap: 0.4rem; color: var(--escopo); }
+.ponto-escopo {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--escopo); flex: none;
+}
+.pill--escopo { border-color: var(--escopo); color: var(--escopo); }
 
 .chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 .chip-toggle {

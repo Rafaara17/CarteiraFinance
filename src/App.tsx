@@ -4,11 +4,14 @@ import { getSession, membroAtual, onAuthChange, signOut, usuarioId } from "./dat
 import { LIGA_WALLET_ID } from "./data/supabaseClient";
 import { Admin } from "./ui/Admin";
 import { Allocation } from "./ui/Allocation";
+import { AtivarCarteira } from "./ui/AtivarCarteira";
+import { Comparar } from "./ui/Comparar";
 import { Dashboard } from "./ui/Dashboard";
 import { History } from "./ui/History";
 import { Login } from "./ui/Login";
 import { Positions } from "./ui/Positions";
 import { Report } from "./ui/Report";
+import { useEscopo } from "./ui/SeletorCarteira";
 import { Shell, type ItemNav } from "./ui/Shell";
 import { Trade } from "./ui/Trade";
 import { useLeagueData } from "./ui/useLeagueData";
@@ -19,6 +22,7 @@ export function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [carregandoSessao, setCarregandoSessao] = useState(true);
   const [aba, setAba] = useState("visao");
+  const [escopo, trocarEscopo] = useEscopo();
 
   // Sessão inicial + assinatura de mudanças de autenticação (login/logout).
   useEffect(() => {
@@ -39,21 +43,33 @@ export function App() {
   const membro = membroAtual(session);
   const dados = useLeagueData(uid, membro);
 
+  // A carteira em uso. Todas as telas leem daqui — nenhuma sabe qual escopo está
+  // ativo, o que impede uma tela mostrar uma carteira e o topo outra.
+  const pessoal = escopo === "pessoal";
+  const ativada = dados.carteiraMinha != null;
+  const carteiraId = pessoal ? dados.carteiraMinha?.id ?? null : dados.carteiraLiga?.id ?? LIGA_WALLET_ID;
+  const transacoes = pessoal ? dados.transacoesMinha : dados.transacoesLiga;
+  const snapshot = pessoal ? dados.snapshotMinha : dados.snapshotLiga;
+  const ultimaAtualizacao = pessoal ? dados.ultimaAtualizacaoMinha : dados.ultimaAtualizacaoLiga;
+  const podeOperar = pessoal ? ativada : dados.podeGerirLiga;
+
   const itens: ItemNav[] = [
     { id: "visao", rotulo: "Visão geral", curto: "Visão", ico: "◧" },
-    ...(dados.podeGerirLiga ? [{ id: "operar", rotulo: "Operar", ico: "⇄" }] : []),
+    ...(podeOperar ? [{ id: "operar", rotulo: "Operar", ico: "⇄" }] : []),
     { id: "posicoes", rotulo: "Posições", curto: "Posições", ico: "☰" },
     { id: "alocacao", rotulo: "Alocação", ico: "◔" },
     { id: "relatorio", rotulo: "Relatório", curto: "Relat.", ico: "▤" },
     { id: "historico", rotulo: "Histórico", curto: "Hist.", ico: "↻" },
+    { id: "comparar", rotulo: "Comparar", ico: "⚖" },
     ...(dados.ehAdmin ? [{ id: "admin", rotulo: "Admin", ico: "⚙" }] : []),
   ];
 
-  // Se a aba atual deixou de existir (mudança de papel), volta para a Visão.
+  // Se a aba atual deixou de existir (mudança de papel ou de escopo), volta para
+  // a Visão em vez de deixar a tela em branco.
   useEffect(() => {
     if (!itens.some((i) => i.id === aba)) setAba("visao");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dados.podeGerirLiga, dados.ehAdmin]);
+  }, [dados.podeGerirLiga, dados.ehAdmin, podeOperar, escopo]);
 
   if (carregandoSessao) {
     return (
@@ -65,14 +81,119 @@ export function App() {
 
   if (!session) return <Login />;
 
-  const { config, precos, snapshot } = dados;
+  const { config, precos } = dados;
+  const rotuloCarteira = pessoal ? "Carteira individual" : config?.nomeLiga ?? "Carteira da Liga";
+
+  function conteudo() {
+    if (aba === "admin" && dados.ehAdmin) {
+      return <Admin membros={dados.membros} meuUserId={uid} atualizarPapelMembro={dados.atualizarPapelMembro} />;
+    }
+
+    if (!config || !precos) {
+      return (
+        <div className="card">
+          <div className="vazio">{dados.carregando ? "Carregando carteira…" : "Sem dados para exibir."}</div>
+        </div>
+      );
+    }
+
+    // A comparação existe mesmo sem carteira pessoal: é lá que está o ranking da
+    // liga e o convite para entrar na disputa.
+    if (aba === "comparar") {
+      return (
+        <Comparar
+          config={config}
+          ativos={dados.ativos}
+          precos={precos}
+          snapshotLiga={dados.snapshotLiga}
+          snapshotMinha={dados.snapshotMinha}
+          transacoesLiga={dados.transacoesLiga}
+          transacoesMinha={dados.transacoesMinha}
+          wallets={dados.wallets}
+          membros={dados.membros}
+          transacoesPorCarteira={dados.transacoesPorCarteira}
+          minhaCarteiraId={dados.carteiraMinha?.id ?? null}
+          onAtivar={() => {
+            dados.recarregar();
+            trocarEscopo("pessoal");
+          }}
+        />
+      );
+    }
+
+    if (pessoal && !ativada) {
+      return (
+        <AtivarCarteira
+          config={config}
+          snapshotLiga={dados.snapshotLiga}
+          onPronto={() => {
+            dados.recarregar();
+            setAba("visao");
+          }}
+        />
+      );
+    }
+
+    if (!snapshot) {
+      return (
+        <div className="card">
+          <div className="vazio">{dados.carregando ? "Carregando carteira…" : "Sem dados para exibir."}</div>
+        </div>
+      );
+    }
+
+    return (
+      <>
+        {aba === "visao" && (
+          <Dashboard
+            config={config}
+            snapshot={snapshot}
+            transacoes={transacoes}
+            ativos={dados.ativos}
+            ultimaAtualizacao={ultimaAtualizacao}
+            precoAtualizadoEm={precos.atualizadoEm}
+            precosDesatualizados={dados.precosDesatualizados}
+            onIrPara={setAba}
+          />
+        )}
+        {/* sem carteiraId não se opera: escrever na carteira errada seria pior
+            que não escrever. */}
+        {aba === "operar" && podeOperar && carteiraId && (
+          <Trade
+            snapshot={snapshot}
+            ativos={dados.ativos}
+            precos={precos}
+            membro={membro}
+            carteiraId={carteiraId}
+            onDone={dados.recarregar}
+          />
+        )}
+        {aba === "posicoes" && <Positions snapshot={snapshot} />}
+        {aba === "alocacao" && <Allocation snapshot={snapshot} />}
+        {aba === "relatorio" && (
+          <Report
+            config={pessoal ? { ...config, nomeLiga: `Carteira individual — ${membro}` } : config}
+            snapshot={snapshot}
+            transacoes={transacoes}
+            ativos={dados.ativos}
+            precoAtualizadoEm={precos.atualizadoEm}
+            membro={membro}
+          />
+        )}
+        {aba === "historico" && <History transacoes={transacoes} />}
+      </>
+    );
+  }
 
   return (
     <Shell
       itens={itens}
       ativo={aba}
       onNavegar={setAba}
-      nomeLiga={config?.nomeLiga ?? "Carteira da Liga"}
+      escopo={escopo}
+      onTrocarEscopo={trocarEscopo}
+      carteiraAtivada={ativada}
+      rotuloCarteira={rotuloCarteira}
       membro={membro}
       papel={ROTULO_PAPEL[dados.meuPapel]}
       snapshot={snapshot}
@@ -80,53 +201,7 @@ export function App() {
     >
       {dados.erro && <div className="alerta" style={{ marginBottom: "1rem" }}>Erro: {dados.erro}</div>}
 
-      {aba === "admin" && dados.ehAdmin ? (
-        <Admin membros={dados.membros} meuUserId={uid} atualizarPapelMembro={dados.atualizarPapelMembro} />
-      ) : !config || !precos || !snapshot ? (
-        <div className="card">
-          <div className="vazio">
-            {dados.carregando ? "Carregando carteira…" : "Sem dados para exibir."}
-          </div>
-        </div>
-      ) : (
-        <>
-          {aba === "visao" && (
-            <Dashboard
-              config={config}
-              snapshot={snapshot}
-              transacoes={dados.transacoes}
-              ativos={dados.ativos}
-              ultimaAtualizacao={dados.ultimaAtualizacao}
-              precoAtualizadoEm={precos.atualizadoEm}
-              precosDesatualizados={dados.precosDesatualizados}
-              onIrPara={setAba}
-            />
-          )}
-          {aba === "operar" && dados.podeGerirLiga && (
-            <Trade
-              snapshot={snapshot}
-              ativos={dados.ativos}
-              precos={precos}
-              membro={membro}
-              carteiraId={dados.carteiraLiga?.id ?? LIGA_WALLET_ID}
-              onDone={dados.recarregar}
-            />
-          )}
-          {aba === "posicoes" && <Positions snapshot={snapshot} />}
-          {aba === "alocacao" && <Allocation snapshot={snapshot} />}
-          {aba === "relatorio" && (
-            <Report
-              config={config}
-              snapshot={snapshot}
-              transacoes={dados.transacoes}
-              ativos={dados.ativos}
-              precoAtualizadoEm={precos.atualizadoEm}
-              membro={membro}
-            />
-          )}
-          {aba === "historico" && <History transacoes={dados.transacoes} />}
-        </>
-      )}
+      {conteudo()}
 
       <footer className="muted" style={{ textAlign: "center", fontSize: "0.76rem", marginTop: "2.5rem", paddingTop: "1.25rem", borderTop: "1px solid var(--borda)" }}>
         <strong>ESALQ Finance</strong> · Liga de Mercado Financeiro da ESALQ/USP

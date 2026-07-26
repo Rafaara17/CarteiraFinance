@@ -362,11 +362,20 @@ create policy transactions_insert on public.transactions
   with check (user_id = auth.uid() and public.pode_operar_carteira(carteira_id));
 
 -- ---------------------------------------------------------------------------
--- RPC: criar a carteira pessoal como CÓPIA (fork) da carteira da liga no momento
--- da ativação. Idempotente: se já existe, devolve o id. SECURITY DEFINER para
--- criar a wallet e copiar o ledger da liga numa transação só.
+-- RPC: criar a carteira pessoal do membro. Idempotente: se já existe, devolve o
+-- id (e o p_copiar é ignorado). SECURITY DEFINER para criar a wallet e copiar o
+-- ledger da liga numa transação só.
+--
+--   p_copiar = true  => nasce como CÓPIA da carteira da liga no momento da
+--                       ativação; o membro diverge a partir dali.
+--   p_copiar = false => nasce vazia. Sem ledger, o replay do motor devolve o
+--                       capital inicial todo em caixa — nenhuma transação de
+--                       aporte é criada (o capital é fixo e vem do config).
 -- ---------------------------------------------------------------------------
-create or replace function public.fork_carteira_pessoal()
+-- create or replace não troca a assinatura de uma função: dropar a versão sem
+-- argumentos primeiro (idempotente, o schema é re-executável).
+drop function if exists public.fork_carteira_pessoal();
+create or replace function public.fork_carteira_pessoal(p_copiar boolean default true)
 returns uuid language plpgsql security definer set search_path = public as $$
 declare
   v_uid  uuid := auth.uid();
@@ -388,20 +397,22 @@ begin
   values ('pessoal', v_uid, coalesce(v_nome, 'Minha carteira'))
   returning id into v_wid;
 
-  -- Fork: copia o ledger da liga como ponto de partida (ids novos por default).
-  insert into public.transactions
-    (ts, tipo, membro, ticker, qtd, preco, moeda, fx, taxa, valor, user_id, carteira_id)
-  select t.ts, t.tipo, t.membro, t.ticker, t.qtd, t.preco, t.moeda, t.fx, t.taxa, t.valor, v_uid, v_wid
-  from public.transactions t
-  join public.wallets w on w.id = t.carteira_id
-  where w.tipo = 'liga'
-  order by t.ts;
+  if p_copiar then
+    -- Fork: copia o ledger da liga como ponto de partida (ids novos por default).
+    insert into public.transactions
+      (ts, tipo, membro, ticker, qtd, preco, moeda, fx, taxa, valor, user_id, carteira_id)
+    select t.ts, t.tipo, t.membro, t.ticker, t.qtd, t.preco, t.moeda, t.fx, t.taxa, t.valor, v_uid, v_wid
+    from public.transactions t
+    join public.wallets w on w.id = t.carteira_id
+    where w.tipo = 'liga'
+    order by t.ts;
+  end if;
 
   return v_wid;
 end;
 $$;
 
-grant execute on function public.fork_carteira_pessoal() to authenticated;
+grant execute on function public.fork_carteira_pessoal(boolean) to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Realtime para as novas tabelas (papéis e carteiras aparecem ao vivo).

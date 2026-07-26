@@ -28,6 +28,7 @@ export interface Wallet {
   tipo: "liga" | "pessoal";
   dono: string | null; // user_id do dono (só nas pessoais)
   nome: string;
+  criadaEm: string; // ISO — delimita desde quando a carteira disputa o ranking
 }
 
 /** Papel de um usuário no sistema de privilégios. */
@@ -133,16 +134,14 @@ export async function garantirMembro(userId: string, nome: string): Promise<void
 }
 
 /**
- * Cria (ou recupera) a carteira pessoal do usuário logado como CÓPIA (fork) da
- * carteira da liga no momento da ativação. Idempotente. Devolve o id da carteira.
+ * Cria (ou recupera) a carteira pessoal do usuário logado. Idempotente: se já
+ * existe, devolve o id e `copiar` é ignorado.
  *
- * DORMENTE: a carteira pessoal saiu da interface (o app é só a carteira da liga),
- * mas o banco continua suportando o modelo multi-carteira — tabelas `wallets`,
- * `transactions.carteira_id`, a RPC e as policies seguem no schema. Reativar é
- * voltar a UI; não há migração envolvida. Ver também engine/comparacao.ts.
+ * `copiar = true` faz a carteira nascer como cópia (fork) da carteira da liga no
+ * momento da ativação; `false` a deixa vazia, com o capital inicial todo em caixa.
  */
-export async function forkCarteiraPessoal(): Promise<string> {
-  const { data, error } = await supabase.rpc("fork_carteira_pessoal");
+export async function forkCarteiraPessoal(copiar: boolean): Promise<string> {
+  const { data, error } = await supabase.rpc("fork_carteira_pessoal", { p_copiar: copiar });
   if (error) throw new Error(`Falha ao criar carteira pessoal: ${error.message}`);
   return data as string;
 }
@@ -254,9 +253,16 @@ interface LinhaWallet {
   tipo: string;
   dono: string | null;
   nome: string;
+  criada_em: string;
 }
 function mapWallet(r: LinhaWallet): Wallet {
-  return { id: r.id, tipo: r.tipo as Wallet["tipo"], dono: r.dono ?? null, nome: r.nome };
+  return {
+    id: r.id,
+    tipo: r.tipo as Wallet["tipo"],
+    dono: r.dono ?? null,
+    nome: r.nome,
+    criadaEm: r.criada_em,
+  };
 }
 
 interface LinhaMembro {

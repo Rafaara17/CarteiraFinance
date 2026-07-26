@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { fmtBRL, fmtPct } from "../engine/report";
 import type { PortfolioSnapshot } from "../engine/types";
 import { Marca } from "./Marca";
+import { SeletorCarteira, type EscopoCarteira } from "./SeletorCarteira";
 import { sinal } from "./grafico";
 
 export interface ItemNav {
@@ -16,9 +17,15 @@ interface Props {
   itens: ItemNav[];
   ativo: string;
   onNavegar: (id: string) => void;
-  nomeLiga: string;
+  escopo: EscopoCarteira;
+  onTrocarEscopo: (e: EscopoCarteira) => void;
+  /** false enquanto o membro não criou a carteira pessoal. */
+  carteiraAtivada: boolean;
+  /** nome da carteira em uso, exibido de forma permanente no topo. */
+  rotuloCarteira: string;
   membro: string;
   papel: string;
+  /** snapshot da carteira ATIVA (não necessariamente o da liga). */
   snapshot: PortfolioSnapshot | null;
   onSair: () => void;
   children: ReactNode;
@@ -28,16 +35,31 @@ interface Props {
  * Casca do app: navegação lateral fixa (barra inferior no celular) e um topo
  * pegajoso que mantém patrimônio e variação do dia sempre à vista — os dois
  * números que a pessoa abre o app para ver.
+ *
+ * Tudo aqui é relativo à carteira ATIVA. Como liga e carteira pessoal usam as
+ * mesmas telas, o `data-escopo` pinta a faixa do topo e o seletor, e o rótulo da
+ * carteira fica fixo ao lado do título: nenhuma tela pode ser lida sem que se
+ * saiba de qual carteira ela fala.
  */
 export function Shell(props: Props) {
   const { itens, ativo, onNavegar, snapshot } = props;
 
+  const seletor = (
+    <SeletorCarteira
+      escopo={props.escopo}
+      onTrocar={props.onTrocarEscopo}
+      ativada={props.carteiraAtivada}
+    />
+  );
+
   return (
-    <div className="app">
+    <div className="app" data-escopo={props.escopo}>
       <aside className="lateral no-print">
         <div className="lateral__marca">
           <Marca />
         </div>
+
+        {seletor}
 
         <nav className="lateral__nav">
           {itens.map((i) => (
@@ -67,13 +89,19 @@ export function Shell(props: Props) {
       <div className="principal">
         <header className="topo no-print">
           <div>
-            <div className="topo__rot">{props.nomeLiga}</div>
+            <div className="topo__rot topo__carteira">
+              <span className="ponto-escopo" aria-hidden="true" />
+              {props.rotuloCarteira}
+            </div>
             <div className="topo__titulo">
               {itens.find((i) => i.id === ativo)?.rotulo ?? ""}
             </div>
           </div>
 
           <div className="spacer" />
+
+          {/* No celular a lateral some, então o seletor precisa morar aqui. */}
+          <div className="seletor-mobile">{seletor}</div>
 
           {snapshot && (
             <div className="topo__patrimonio">

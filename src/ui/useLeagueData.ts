@@ -30,9 +30,17 @@ export interface DadosLiga {
   ehAdmin: boolean;
   // carteira central da liga
   carteiraLiga: Wallet | null;
-  transacoes: Transacao[];
-  snapshot: PortfolioSnapshot | null;
-  ultimaAtualizacao: UltimaAtualizacao | null;
+  transacoesLiga: Transacao[];
+  snapshotLiga: PortfolioSnapshot | null;
+  ultimaAtualizacaoLiga: UltimaAtualizacao | null;
+  // carteira pessoal do usuário logado (null enquanto não ativada)
+  carteiraMinha: Wallet | null;
+  transacoesMinha: Transacao[];
+  snapshotMinha: PortfolioSnapshot | null;
+  ultimaAtualizacaoMinha: UltimaAtualizacao | null;
+  // cru, para o ranking entre todas as carteiras
+  wallets: Wallet[];
+  transacoesPorCarteira: Map<string, Transacao[]>;
   // estado + ações
   carregando: boolean;
   erro: string | null;
@@ -43,10 +51,12 @@ export interface DadosLiga {
 }
 
 const VAZIO: Transacao[] = [];
+const SEM_CARTEIRAS = new Map<string, Transacao[]>();
 
 /**
- * Carrega config/ativos/preços/membros + o ledger da carteira da liga e computa o
- * snapshot. Mantém tudo sincronizado (Realtime + foco da aba).
+ * Carrega config/ativos/preços/membros + o ledger de TODAS as carteiras e computa
+ * os snapshots da liga e da carteira pessoal. Mantém tudo sincronizado (Realtime
+ * + foco da aba).
  *
  * Ponto importante: além do snapshot de `prices_latest` (escrito pelo cron), o
  * hook busca COTAÇÃO AO VIVO pela Edge Function e mescla por cima, repetindo a
@@ -176,9 +186,15 @@ export function useLeagueData(userId: string | null, nome: string): DadosLiga {
         podeGerirLiga: false,
         ehAdmin: false,
         carteiraLiga: null,
-        transacoes: VAZIO,
-        snapshot: null,
-        ultimaAtualizacao: null,
+        transacoesLiga: VAZIO,
+        snapshotLiga: null,
+        ultimaAtualizacaoLiga: null,
+        carteiraMinha: null,
+        transacoesMinha: VAZIO,
+        snapshotMinha: null,
+        ultimaAtualizacaoMinha: null,
+        wallets: [],
+        transacoesPorCarteira: SEM_CARTEIRAS,
         precosDesatualizados: false,
       };
     }
@@ -187,9 +203,14 @@ export function useLeagueData(userId: string | null, nome: string): DadosLiga {
     const precos = mesclarPrecos(doBanco, vivas);
 
     const meuPapel: Papel = (membros.find((m) => m.userId === userId)?.papel ?? "membro") as Papel;
+
     const carteiraLiga = wallets.find((w) => w.tipo === "liga") ?? null;
-    const ligaId = carteiraLiga?.id ?? LIGA_WALLET_ID;
-    const transacoes = transacoesPorCarteira.get(ligaId) ?? VAZIO;
+    const transacoesLiga = transacoesPorCarteira.get(carteiraLiga?.id ?? LIGA_WALLET_ID) ?? VAZIO;
+
+    // Carteira pessoal: `null` enquanto o membro não ativou. Não inventamos uma
+    // carteira vazia aqui — isso se confundiria com uma carteira ativada e zerada.
+    const carteiraMinha = wallets.find((w) => w.tipo === "pessoal" && w.dono === userId) ?? null;
+    const transacoesMinha = carteiraMinha ? transacoesPorCarteira.get(carteiraMinha.id) ?? VAZIO : VAZIO;
 
     return {
       ...base,
@@ -201,9 +222,15 @@ export function useLeagueData(userId: string | null, nome: string): DadosLiga {
       podeGerirLiga: meuPapel === "gestor" || meuPapel === "admin",
       ehAdmin: meuPapel === "admin",
       carteiraLiga,
-      transacoes,
-      snapshot: computarPortfolio(config, transacoes, ativos, precos),
-      ultimaAtualizacao: ultimaAtualizacaoDe(transacoes),
+      transacoesLiga,
+      snapshotLiga: computarPortfolio(config, transacoesLiga, ativos, precos),
+      ultimaAtualizacaoLiga: ultimaAtualizacaoDe(transacoesLiga),
+      carteiraMinha,
+      transacoesMinha,
+      snapshotMinha: carteiraMinha ? computarPortfolio(config, transacoesMinha, ativos, precos) : null,
+      ultimaAtualizacaoMinha: ultimaAtualizacaoDe(transacoesMinha),
+      wallets,
+      transacoesPorCarteira,
       precosDesatualizados: !gatewayOk,
     };
   }, [dados, vivas, gatewayOk, userId, carregando, erro, recarregar, atualizarPapelMembro]);

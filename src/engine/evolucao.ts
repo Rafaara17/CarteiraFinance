@@ -280,25 +280,52 @@ function precosVazios(cambio: Record<string, number>): PrecosSnapshot {
   return { atualizadoEm: null, cambio, acoes: {}, tesouro: {} };
 }
 
-/** Retorno mês a mês (%) do patrimônio: fecha cada mês e compara com o anterior. */
-function retornosMensais(serie: PontoSerie[]): RetornoMensal[] {
-  if (serie.length === 0) return [];
-  // Último patrimônio de cada mês, na ordem em que os meses aparecem.
-  const fimDoMes = new Map<string, number>();
-  for (const p of serie) fimDoMes.set(p.data.slice(0, 7), p.patrimonioBRL);
-  const meses = [...fimDoMes.keys()];
+/** Retorno de um período fechado (mês, semana...) do agrupamento da série. */
+export interface RetornoPeriodo {
+  chave: string;
+  retornoPct: number;
+  patrimonioFim: number;
+}
 
-  const out: RetornoMensal[] = [];
+/**
+ * Fecha a série por um agrupamento qualquer (`chaveDe`) e encadeia os retornos:
+ * cada período rende do fechamento do anterior até o seu próprio fechamento. O
+ * primeiro usa a abertura do período como base.
+ *
+ * Serve tanto ao retorno mensal quanto ao semanal (engine/semanal.ts), que só
+ * mudam a chave.
+ */
+export function retornosPorChave(
+  serie: PontoSerie[],
+  chaveDe: (dataYMD: string) => string,
+): RetornoPeriodo[] {
+  if (serie.length === 0) return [];
+  // Último patrimônio de cada período, na ordem em que os períodos aparecem.
+  const fecha = new Map<string, number>();
+  for (const p of serie) fecha.set(chaveDe(p.data), p.patrimonioBRL);
+
+  const out: RetornoPeriodo[] = [];
   let base = serie[0].patrimonioBRL; // abertura do período
-  for (const mes of meses) {
-    const fim = fimDoMes.get(mes)!;
-    out.push({ mes, retornoPct: base > 0 ? (fim / base - 1) * 100 : 0 });
-    base = fim;
+  for (const [chave, patrimonioFim] of fecha) {
+    out.push({
+      chave,
+      retornoPct: base > 0 ? (patrimonioFim / base - 1) * 100 : 0,
+      patrimonioFim,
+    });
+    base = patrimonioFim;
   }
   return out;
 }
 
+/** Retorno mês a mês (%) do patrimônio: fecha cada mês e compara com o anterior. */
+function retornosMensais(serie: PontoSerie[]): RetornoMensal[] {
+  return retornosPorChave(serie, (d) => d.slice(0, 7)).map((r) => ({
+    mes: r.chave,
+    retornoPct: r.retornoPct,
+  }));
+}
+
 /** Date -> "AAAA-MM-DD" (UTC). */
-function ymd(d: Date): string {
+export function ymd(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
