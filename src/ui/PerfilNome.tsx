@@ -59,7 +59,7 @@ export function PerfilNome({ sugestao, onSalvar, onSair }: Props) {
               maxLength={40}
               value={nome}
               onChange={(e) => setNome(e.target.value)}
-              placeholder="Ex.: Rafael Araújo"
+              placeholder="Ex.: Nome Sobrenome"
             />
           </div>
 
