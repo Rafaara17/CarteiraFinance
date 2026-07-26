@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { fmtBRL, fmtNum } from "../engine/report";
 import { rotuloIndexador, sufixoIndexador, type TituloTesouro } from "../engine/tesouro";
 import type { Ativo, ClasseAtivo, PortfolioSnapshot, PrecosSnapshot, TxTrade } from "../engine/types";
 import { carregarTitulosTesouro, registrarTransacao, upsertAtivo } from "../data/supabaseClient";
 import { classificarAtivo, cotacaoDolarOuSnapshot, precoDeMercado } from "../data/precoProvider";
 import type { AtivoClassificado } from "../data/precoProvider";
+import { CatalogoTesouro } from "./CatalogoTesouro";
 import { fmtDataLonga, sinal } from "./grafico";
 
 interface Props {
@@ -526,6 +527,8 @@ function Vender({ snapshot, precos, membro, carteiraId, onDone }: Props) {
 function RendaFixa({ snapshot, membro, carteiraId, onDone }: Props) {
   /** Catálogo oficial. null = ainda carregando; [] = Action nunca rodou. */
   const [catalogo, setCatalogo] = useState<TituloTesouro[] | null>(null);
+  const [erroCatalogo, setErroCatalogo] = useState<string | null>(null);
+  const [carregandoCatalogo, setCarregandoCatalogo] = useState(true);
   const [isTesouro, setIsTesouro] = useState(true);
   const [ticker, setTicker] = useState("");
   const [nome, setNome] = useState("");
@@ -542,18 +545,29 @@ function RendaFixa({ snapshot, membro, carteiraId, onDone }: Props) {
   const [msg, setMsg] = useState<{ tipo: "ok" | "erro"; texto: string } | null>(null);
   const [ocupado, setOcupado] = useState(false);
 
-  // O catálogo vem da tabela `tesouro_titulos`, escrita só pela Action. Falha
-  // silenciosa de propósito: sem catálogo a tela degrada para entrada manual, que
-  // é melhor do que um erro vermelho impedindo a compra.
-  useEffect(() => {
-    let vivo = true;
-    carregarTitulosTesouro()
-      .then((ts) => vivo && setCatalogo(ts))
-      .catch(() => vivo && setCatalogo([]));
-    return () => {
-      vivo = false;
-    };
+  /**
+   * O catálogo vem da tabela `tesouro_titulos`, escrita só pela Action do Tesouro.
+   *
+   * A falha NÃO bloqueia a compra: o formulário degrada para entrada manual e o
+   * erro aparece na área do catálogo. Impedir de operar porque uma tabela de
+   * consulta não carregou seria pior do que a consulta faltar.
+   */
+  const carregarCatalogo = useCallback(async () => {
+    setCarregandoCatalogo(true);
+    setErroCatalogo(null);
+    try {
+      setCatalogo(await carregarTitulosTesouro());
+    } catch (e) {
+      setErroCatalogo(e instanceof Error ? e.message : String(e));
+      setCatalogo((antes) => antes ?? []);
+    } finally {
+      setCarregandoCatalogo(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void carregarCatalogo();
+  }, [carregarCatalogo]);
 
   const titulos = catalogo ?? [];
   const selecionado = titulos.find((t) => t.slug === slug) ?? null;
@@ -653,7 +667,8 @@ function RendaFixa({ snapshot, membro, carteiraId, onDone }: Props) {
   }
 
   return (
-    <div className="card">
+    <div className="grid">
+      <div className="card">
       <div className="card__cab">
         <h3>Comprar renda fixa</h3>
         <span className="muted">Tesouro Direto usa PU oficial; os demais crescem linearmente até o vencimento</span>
@@ -810,6 +825,21 @@ function RendaFixa({ snapshot, membro, carteiraId, onDone }: Props) {
         <p className={msg.tipo === "erro" ? "alerta" : "aviso"} style={{ marginBottom: 0, marginTop: "0.9rem" }}>
           {msg.texto}
         </p>
+      )}
+      </div>
+
+      {/* O catálogo só faz sentido no Tesouro: num CDB não há lista oficial para
+          consultar. Fica ABAIXO porque a ação principal é comprar; a tabela é a
+          referência de apoio — e clicar nela preenche o formulário acima. */}
+      {isTesouro && (
+        <CatalogoTesouro
+          titulos={titulos}
+          carregando={carregandoCatalogo}
+          erro={erroCatalogo}
+          onAtualizar={() => void carregarCatalogo()}
+          slugSelecionado={slug}
+          onEscolher={escolherTitulo}
+        />
       )}
     </div>
   );

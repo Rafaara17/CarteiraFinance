@@ -30,10 +30,6 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          # Token Brapi — OPCIONAL e secreto (nunca vai para o site). É o que
-          # alimenta o CATÁLOGO e o PU oficial do Tesouro Direto. Sem ele o passo
-          # roda igual (ações e câmbio seguem normais) e só o Tesouro não atualiza.
-          BRAPI_TOKEN: ${{ secrets.BRAPI_TOKEN }}
         run: npm run fetch-prices
 
       - name: Creditar proventos (Yahoo) no Supabase
@@ -44,6 +40,7 @@ jobs:
           PROVENTOS_DESDE: "2026-07-24"
         run: npm run fetch-dividends
 
-      # A série histórica (evolução dos relatórios) NÃO roda aqui: o fechamento
-      # diário só muda uma vez por dia. Ver .github/workflows/history.yml
-      # (roda 1x/dia após o fechamento).
+      # Duas coisas NÃO rodam aqui, pelo mesmo motivo — mudam uma vez por dia, e
+      # este workflow roda de hora em hora:
+      #  - série histórica (evolução dos relatórios): .github/workflows/history.yml
+      #  - catálogo e PU do Tesouro Direto:           .github/workflows/tesouro.yml

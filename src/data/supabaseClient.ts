@@ -191,7 +191,7 @@ export async function carregarTitulosTesouro(): Promise<TituloTesouro[]> {
   const hoje = new Date().toISOString().slice(0, 10);
   const { data, error } = await supabase
     .from("tesouro_titulos")
-    .select("slug,nome,indexador,vencimento,pu_compra,pu_venda,taxa_compra,taxa_venda,investimento_minimo,negociavel")
+    .select("slug,nome,indexador,vencimento,data_base,pu_compra,pu_venda,taxa_compra,taxa_venda,investimento_minimo,negociavel")
     .gte("vencimento", hoje)
     .order("vencimento", { ascending: true });
   if (error) throw new Error(`tesouro_titulos: ${error.message}`);
@@ -390,6 +390,7 @@ interface LinhaTitulo {
   nome: string;
   indexador: string | null;
   vencimento: string;
+  data_base: string | null;
   pu_compra: unknown;
   pu_venda: unknown;
   taxa_compra: unknown;
@@ -404,6 +405,9 @@ function mapTitulo(r: LinhaTitulo): TituloTesouro {
     nome: r.nome,
     indexador: (r.indexador ?? "OUTRO") as IndexadorTesouro,
     vencimento: r.vencimento,
+    // "" quando a linha veio de antes da coluna existir: a UI trata como
+    // "sem data conhecida" em vez de inventar uma.
+    dataBase: r.data_base ?? "",
     puCompra: numOpt(r.pu_compra) ?? null,
     puVenda: numOpt(r.pu_venda) ?? null,
     taxaCompra: numOpt(r.taxa_compra) ?? null,
