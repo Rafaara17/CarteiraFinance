@@ -242,8 +242,6 @@ export function App() {
 
       <footer className="muted" style={{ textAlign: "center", fontSize: "0.76rem", marginTop: "2.5rem", paddingTop: "1.25rem", borderTop: "1px solid var(--borda)" }}>
         <strong>ESALQ Finance</strong> · Liga de Mercado Financeiro da ESALQ/USP
-        <br />
-        Carteira simulada · capital inicial fixo e imutável · preços oficiais · sincronizada em tempo real.
       </footer>
     </Shell>
   );
