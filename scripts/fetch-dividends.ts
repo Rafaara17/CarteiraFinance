@@ -3,8 +3,9 @@
  *
  * Roda server-side na GitHub Action (sem CORS) com a SERVICE ROLE KEY (ignora
  * RLS). Para cada posição de renda variável (ação/ETF/FII), busca os dividendos
- * no Yahoo Finance e, para cada evento em que o usuário tinha o ativo na data-com,
- * insere uma transação `provento` — que o motor (ledger.replay) credita no caixa.
+ * no Yahoo Finance e, para cada evento em que a carteira tinha o ativo na
+ * data-com, insere uma transação `provento` — que o motor (ledger.replay) credita
+ * no caixa.
  *
  * Regras (alinhadas com o usuário):
  *  - Fonte gratuita (Yahoo): traz o valor por cota e a DATA-EX. O Yahoo não expõe
@@ -12,8 +13,13 @@
  *  - Elegibilidade pela data-com: só recebe quem tinha o ativo no fechamento do
  *    dia anterior à data-ex (quem comprou "ex" não recebe).
  *  - "Só daqui pra frente": processa apenas eventos com data-ex >= PROVENTOS_DESDE.
- *  - Idempotente: id determinístico por (user, ticker, data-ex) + upsert
+ *  - Idempotente: id determinístico por (carteira, ticker, data-ex) + upsert
  *    ignoreDuplicates — rodar de hora em hora nunca duplica.
+ *
+ * A UNIDADE DE APURAÇÃO É A CARTEIRA, não o usuário. O ledger da liga é escrito
+ * por vários gestores (um user_id cada), e uma carteira pessoal nasce como cópia
+ * do ledger da liga: agrupar por user_id somaria posições de carteiras diferentes
+ * e ainda creditaria tudo na liga (carteira_id tem default fixo no schema).
  *
  * Env necessárias (secrets da Action):
  *   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, PROVENTOS_DESDE (ISO "AAAA-MM-DD")
@@ -42,6 +48,7 @@ interface LinhaTx {
   fx: string | number | null;
   valor: string | number | null;
   user_id: string;
+  carteira_id: string;
 }
 
 interface EventoDividendo {
@@ -68,17 +75,17 @@ async function main() {
   // --- Transações (todas; service role ignora RLS) ---
   const { data: txsRaw, error: eTx } = await db
     .from("transactions")
-    .select("id,ts,tipo,membro,ticker,qtd,preco,moeda,fx,valor,user_id")
+    .select("id,ts,tipo,membro,ticker,qtd,preco,moeda,fx,valor,user_id,carteira_id")
     .order("ts", { ascending: true });
   if (eTx) throw new Error(`Falha ao ler transactions: ${eTx.message}`);
   const linhas = (txsRaw ?? []) as LinhaTx[];
 
-  // Agrupa por usuário → transações tipadas (para qtdNaData e atribuição).
-  const porUsuario = new Map<string, LinhaTx[]>();
+  // Agrupa por carteira → transações tipadas (para qtdNaData e atribuição).
+  const porCarteira = new Map<string, LinhaTx[]>();
   for (const l of linhas) {
-    const arr = porUsuario.get(l.user_id) ?? [];
+    const arr = porCarteira.get(l.carteira_id) ?? [];
     arr.push(l);
-    porUsuario.set(l.user_id, arr);
+    porCarteira.set(l.carteira_id, arr);
   }
 
   // Câmbio USD/BRL do snapshot (para ativos em USD).
@@ -103,9 +110,13 @@ async function main() {
 
     const fx = ativo.moeda === "BRL" ? 1 : usd;
 
-    for (const [userId, txsUsuario] of porUsuario) {
-      const tipadas = txsUsuario.map(mapTx);
-      const proventosExistentes = chavesProventos(txsUsuario);
+    for (const [carteiraId, txsCarteira] of porCarteira) {
+      const tipadas = txsCarteira.map(mapTx);
+      const proventosExistentes = chavesProventos(txsCarteira);
+      // Dá o membro e o user_id do lançamento. Sem compra na carteira não há
+      // posição, então o `continue` só cobre o estreitamento de tipo.
+      const compra = ultimaCompra(txsCarteira, ticker);
+      if (!compra) continue;
 
       for (const ev of noPeriodo) {
         // Limite = último instante do dia anterior à data-ex (fechamento da data-com).
@@ -120,15 +131,16 @@ async function main() {
         if (!(valor > 0)) continue;
 
         inserts.push({
-          id: uuidDeterministico(`${userId}|${ticker}|${ev.exYMD}`),
+          id: uuidDeterministico(`${carteiraId}|${ticker}|${ev.exYMD}`),
           ts: `${ev.exYMD}T12:00:00.000Z`,
           tipo: "provento",
-          membro: membroDoTicker(txsUsuario, ticker),
+          membro: compra.membro,
           ticker,
           moeda: ativo.moeda,
           fx,
           valor,
-          user_id: userId,
+          user_id: compra.user_id,
+          carteira_id: carteiraId,
         });
       }
     }
@@ -169,13 +181,17 @@ async function dividendosYahoo(symbol: string, period1: number, period2: number)
   return out;
 }
 
-/** Membro da compra mais recente do ticker (atribuição do provento); "sistema" se não houver. */
-function membroDoTicker(txs: LinhaTx[], ticker: string): string {
-  let membro = "sistema";
+/**
+ * Compra mais recente do ticker na carteira. O user_id dela é o certo para o
+ * lançamento: numa carteira pessoal é sempre o dono (ver fork_carteira_pessoal),
+ * e na da liga é o gestor que montou a posição.
+ */
+function ultimaCompra(txs: LinhaTx[], ticker: string): LinhaTx | undefined {
+  let achada: LinhaTx | undefined;
   for (const t of txs) {
-    if (t.ticker === ticker && t.tipo === "compra") membro = t.membro; // ordenado por ts asc
+    if (t.ticker === ticker && t.tipo === "compra") achada = t; // ordenado por ts asc
   }
-  return membro;
+  return achada;
 }
 
 /** Conjunto de chaves `ticker|dataEx` dos proventos já existentes (para dedupe em memória). */
