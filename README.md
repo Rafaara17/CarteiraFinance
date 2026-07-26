@@ -62,9 +62,8 @@ RLS), então o primeiro admin nasce direto no banco. No Supabase, **SQL Editor �
 o e-mail e rode:
 
 ```sql
-insert into public.membros (user_id, nome, papel)
-select id, coalesce(raw_user_meta_data->>'name', email), 'admin'
-from auth.users where email = 'SEU-EMAIL@exemplo.com'
+insert into public.membros (user_id, papel)
+select id, 'admin' from auth.users where email = 'SEU-EMAIL@exemplo.com'
 on conflict (user_id) do update set papel = 'admin';
 ```
 
@@ -87,8 +86,9 @@ Desse ponto em diante tudo é pela interface. O mesmo texto está dentro do app,
    que já existe.
 3. **Authentication → Providers → Email:** deixe habilitado. Em **Sign In / Providers**, **desligue**
    “Allow new users to sign up” — o acesso é só por convite.
-4. **Convide os membros:** *Authentication → Users → Add user*. Defina o nome de exibição em
-   `user_metadata` (`name`) — é o rótulo que aparece no histórico.
+4. **Convide os membros:** *Authentication → Users → Add user*. Não precisa preencher nome: no
+   primeiro acesso o app pede que a própria pessoa cadastre o nome dela, e é esse nome — não o
+   e-mail — que aparece no ranking, nos campeões da semana e nas comparações.
 5. **Crie o primeiro admin** com o SQL da seção acima.
 6. Pegue as chaves em **Project Settings → API**: `Project URL`, `anon public` e `service_role`.
 

@@ -34,7 +34,8 @@ export interface Wallet {
 /** Papel de um usuário no sistema de privilégios. */
 export interface Membro {
   userId: string;
-  nome: string;
+  /** null enquanto a pessoa não cadastrou o próprio nome no primeiro acesso. */
+  nome: string | null;
   papel: Papel;
 }
 
@@ -125,12 +126,19 @@ export async function upsertAtivo(ativo: Ativo): Promise<void> {
 /**
  * Garante que o usuário logado tem uma linha em `membros` (papel 'membro' por
  * padrão). Idempotente: não mexe em quem já existe (não rebaixa admin/gestor).
+ * Nasce sem nome — quem o define é a própria pessoa, via `definirMeuNome`.
  */
-export async function garantirMembro(userId: string, nome: string): Promise<void> {
+export async function garantirMembro(userId: string): Promise<void> {
   const { error } = await supabase
     .from("membros")
-    .upsert({ user_id: userId, nome, papel: "membro" }, { onConflict: "user_id", ignoreDuplicates: true });
+    .upsert({ user_id: userId, papel: "membro" }, { onConflict: "user_id", ignoreDuplicates: true });
   if (error) throw new Error(`Falha ao registrar membro: ${error.message}`);
+}
+
+/** Cadastra o nome que a própria pessoa escolheu (o que aparece para os outros). */
+export async function definirMeuNome(nome: string): Promise<void> {
+  const { error } = await supabase.rpc("definir_meu_nome", { p_nome: nome });
+  if (error) throw new Error(`Falha ao salvar o nome: ${error.message}`);
 }
 
 /**

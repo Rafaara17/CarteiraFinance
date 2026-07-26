@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { getSession, membroAtual, onAuthChange, signOut, usuarioId } from "./data/session";
+import { getSession, nomeSugerido, onAuthChange, signOut, usuarioId } from "./data/session";
 import { LIGA_WALLET_ID } from "./data/supabaseClient";
 import { Admin } from "./ui/Admin";
 import { Allocation } from "./ui/Allocation";
@@ -9,6 +9,7 @@ import { Comparar } from "./ui/Comparar";
 import { Dashboard } from "./ui/Dashboard";
 import { History } from "./ui/History";
 import { Login } from "./ui/Login";
+import { PerfilNome } from "./ui/PerfilNome";
 import { Positions } from "./ui/Positions";
 import { Report } from "./ui/Report";
 import { useEscopo } from "./ui/SeletorCarteira";
@@ -40,8 +41,9 @@ export function App() {
   }, []);
 
   const uid = usuarioId(session);
-  const membro = membroAtual(session);
-  const dados = useLeagueData(uid, membro);
+  const dados = useLeagueData(uid);
+  // Só chega às telas depois do cadastro do nome, então aqui ele sempre existe.
+  const membro = dados.meuNome ?? "—";
 
   // A carteira em uso. Todas as telas leem daqui — nenhuma sabe qual escopo está
   // ativo, o que impede uma tela mostrar uma carteira e o topo outra.
@@ -80,6 +82,35 @@ export function App() {
   }
 
   if (!session) return <Login />;
+
+  // Sem a primeira carga não se sabe nem quem é a pessoa (o nome mora no banco).
+  if (!dados.pronto) {
+    return (
+      <div className="login-wrap">
+        <div className="card">
+          {dados.erro ? (
+            <>
+              <div className="alerta">Erro ao carregar: {dados.erro}</div>
+              <button className="secundario" onClick={() => void signOut()}>Sair</button>
+            </>
+          ) : (
+            "Carregando…"
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Primeiro acesso: a pessoa cadastra o próprio nome antes de qualquer tela.
+  if (!dados.meuNome) {
+    return (
+      <PerfilNome
+        sugestao={nomeSugerido(session)}
+        onSalvar={dados.definirNome}
+        onSair={() => void signOut()}
+      />
+    );
+  }
 
   const { config, precos } = dados;
   const rotuloCarteira = pessoal ? "Carteira individual" : config?.nomeLiga ?? "Carteira da Liga";

@@ -17,9 +17,8 @@ const PAPEIS: Array<{ id: Papel; rotulo: string; desc: string }> = [
 
 const ROTULO_PAPEL: Record<Papel, string> = { membro: "Membro", gestor: "Gestor", admin: "Admin" };
 
-const SQL_PRIMEIRO_ADMIN = `insert into public.membros (user_id, nome, papel)
-select id, coalesce(raw_user_meta_data->>'name', email), 'admin'
-from auth.users where email = 'SEU-EMAIL@exemplo.com'
+const SQL_PRIMEIRO_ADMIN = `insert into public.membros (user_id, papel)
+select id, 'admin' from auth.users where email = 'SEU-EMAIL@exemplo.com'
 on conflict (user_id) do update set papel = 'admin';`;
 
 export function Admin({ membros, meuUserId, atualizarPapelMembro }: Props) {
@@ -39,7 +38,10 @@ export function Admin({ membros, meuUserId, atualizarPapelMembro }: Props) {
     }
   }
 
-  const ordenados = [...membros].sort((a, b) => a.nome.localeCompare(b.nome));
+  // Quem ainda não cadastrou o nome vai para o fim da lista.
+  const ordenados = [...membros].sort((a, b) =>
+    (a.nome ?? "￿").localeCompare(b.nome ?? "￿"),
+  );
   const gestores = ordenados.filter((m) => m.papel === "gestor" || m.papel === "admin");
 
   return (
@@ -89,7 +91,7 @@ export function Admin({ membros, meuUserId, atualizarPapelMembro }: Props) {
               {ordenados.map((m) => (
                 <tr key={m.userId}>
                   <td className="td-principal">
-                    {m.nome}
+                    {m.nome ?? <span className="muted">Ainda não cadastrou o nome</span>}
                     {m.userId === meuUserId && <span className="badge badge--marca" style={{ marginLeft: 6 }}>você</span>}
                   </td>
                   <td>
@@ -97,7 +99,7 @@ export function Admin({ membros, meuUserId, atualizarPapelMembro }: Props) {
                       value={m.papel}
                       disabled={salvando === m.userId}
                       onChange={(e) => void mudar(m.userId, e.target.value as Papel)}
-                      aria-label={`Papel de ${m.nome}`}
+                      aria-label={`Papel de ${m.nome ?? "membro sem nome"}`}
                     >
                       {PAPEIS.map((p) => (
                         <option key={p.id} value={p.id}>{ROTULO_PAPEL[p.id]}</option>

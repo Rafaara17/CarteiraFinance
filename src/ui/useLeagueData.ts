@@ -6,6 +6,7 @@ import {
   assinarRealtime,
   atualizarPapel,
   carregarDados,
+  definirMeuNome,
   garantirMembro,
   LIGA_WALLET_ID,
   ultimaAtualizacaoDe,
@@ -24,7 +25,9 @@ export interface DadosLiga {
   ativos: Ativo[];
   precos: PrecosSnapshot | null;
   membros: Membro[];
-  // papel do usuário logado (sistema de privilégios)
+  // identidade e papel do usuário logado (sistema de privilégios)
+  /** nome que a pessoa cadastrou; null enquanto ela não escolheu o dela. */
+  meuNome: string | null;
   meuPapel: Papel;
   podeGerirLiga: boolean; // gestor ou admin -> opera a carteira da liga
   ehAdmin: boolean;
@@ -42,12 +45,15 @@ export interface DadosLiga {
   wallets: Wallet[];
   transacoesPorCarteira: Map<string, Transacao[]>;
   // estado + ações
+  /** true depois da primeira carga completa — antes disso não há o que exibir. */
+  pronto: boolean;
   carregando: boolean;
   erro: string | null;
   /** true quando o gateway de cotações não respondeu (usando só o snapshot do cron). */
   precosDesatualizados: boolean;
   recarregar: () => void;
   atualizarPapelMembro: (userId: string, papel: Papel) => Promise<void>;
+  definirNome: (nome: string) => Promise<void>;
 }
 
 const VAZIO: Transacao[] = [];
@@ -63,7 +69,7 @@ const SEM_CARTEIRAS = new Map<string, Transacao[]>();
  * cada minuto. É isso que garante que o patrimônio apareça completo assim que o
  * app abre, sem esperar a Action de preços rodar.
  */
-export function useLeagueData(userId: string | null, nome: string): DadosLiga {
+export function useLeagueData(userId: string | null): DadosLiga {
   const [dados, setDados] = useState<DadosCarregados | null>(null);
   const [vivas, setVivas] = useState<CotacoesVivas | null>(null);
   const [gatewayOk, setGatewayOk] = useState(true);
@@ -80,8 +86,8 @@ export function useLeagueData(userId: string | null, nome: string): DadosLiga {
     if (!userId) return;
     if (membroGarantido.current === userId) return;
     membroGarantido.current = userId;
-    void garantirMembro(userId, nome).then(recarregar).catch(() => {});
-  }, [userId, nome, recarregar]);
+    void garantirMembro(userId).then(recarregar).catch(() => {});
+  }, [userId, recarregar]);
 
   useEffect(() => {
     if (!logado) {
@@ -171,17 +177,27 @@ export function useLeagueData(userId: string | null, nome: string): DadosLiga {
     [recarregar],
   );
 
+  const definirNome = useCallback(
+    async (nomeEscolhido: string) => {
+      await definirMeuNome(nomeEscolhido);
+      recarregar();
+    },
+    [recarregar],
+  );
+
   // --- derivados (memoizados) -----------------------------------------------
   return useMemo<DadosLiga>(() => {
-    const base = { carregando, erro, recarregar, atualizarPapelMembro };
+    const base = { carregando, erro, recarregar, atualizarPapelMembro, definirNome };
 
     if (!dados) {
       return {
         ...base,
+        pronto: false,
         config: null,
         ativos: [],
         precos: null,
         membros: [],
+        meuNome: null,
         meuPapel: "membro",
         podeGerirLiga: false,
         ehAdmin: false,
@@ -202,7 +218,8 @@ export function useLeagueData(userId: string | null, nome: string): DadosLiga {
     const { config, ativos, precos: doBanco, wallets, membros, transacoesPorCarteira } = dados;
     const precos = mesclarPrecos(doBanco, vivas);
 
-    const meuPapel: Papel = (membros.find((m) => m.userId === userId)?.papel ?? "membro") as Papel;
+    const eu = membros.find((m) => m.userId === userId);
+    const meuPapel: Papel = (eu?.papel ?? "membro") as Papel;
 
     const carteiraLiga = wallets.find((w) => w.tipo === "liga") ?? null;
     const transacoesLiga = transacoesPorCarteira.get(carteiraLiga?.id ?? LIGA_WALLET_ID) ?? VAZIO;
@@ -214,10 +231,12 @@ export function useLeagueData(userId: string | null, nome: string): DadosLiga {
 
     return {
       ...base,
+      pronto: true,
       config,
       ativos,
       precos,
       membros,
+      meuNome: eu?.nome?.trim() || null,
       meuPapel,
       podeGerirLiga: meuPapel === "gestor" || meuPapel === "admin",
       ehAdmin: meuPapel === "admin",
@@ -233,7 +252,7 @@ export function useLeagueData(userId: string | null, nome: string): DadosLiga {
       transacoesPorCarteira,
       precosDesatualizados: !gatewayOk,
     };
-  }, [dados, vivas, gatewayOk, userId, carregando, erro, recarregar, atualizarPapelMembro]);
+  }, [dados, vivas, gatewayOk, userId, carregando, erro, recarregar, atualizarPapelMembro, definirNome]);
 }
 
 function ehRendaVariavel(a: Ativo): boolean {

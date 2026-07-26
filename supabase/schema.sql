@@ -274,10 +274,16 @@ create policy wallets_select on public.wallets
 -- ---------------------------------------------------------------------------
 create table if not exists public.membros (
   user_id   uuid primary key references auth.users(id) on delete cascade,
-  nome      text not null,
+  nome      text,
   papel     text not null default 'membro' check (papel in ('admin','gestor','membro')),
   criado_em timestamptz not null default now()
 );
+
+-- `nome` é NULO até a pessoa escolher o próprio nome no primeiro acesso — é esse
+-- nulo que o app usa para saber que ainda precisa pedir o cadastro. Bancos
+-- criados antes desta mudança têm a coluna NOT NULL preenchida com o e-mail.
+alter table public.membros alter column nome drop not null;
+update public.membros set nome = null where nome like '%@%';
 
 alter table public.membros enable row level security;
 
@@ -334,6 +340,36 @@ drop policy if exists membros_update on public.membros;
 create policy membros_update on public.membros
   for update to authenticated
   using (public.eh_admin()) with check (public.eh_admin());
+
+-- ---------------------------------------------------------------------------
+-- RPC: cada pessoa cadastra o PRÓPRIO nome (é ele que aparece no ranking e nas
+-- comparações, no lugar do e-mail). Vai por função porque a policy de UPDATE
+-- acima é exclusiva de admin — abrir um UPDATE direto para o próprio usuário
+-- abriria junto a coluna `papel`, e alguém poderia se autopromover. Aqui só o
+-- `nome` é tocado, então a trava continua de pé.
+-- ---------------------------------------------------------------------------
+create or replace function public.definir_meu_nome(p_nome text)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  v_uid  uuid := auth.uid();
+  v_nome text := nullif(btrim(p_nome), '');
+begin
+  if v_uid is null then
+    raise exception 'não autenticado';
+  end if;
+  if v_nome is null then
+    raise exception 'o nome não pode ficar em branco';
+  end if;
+
+  insert into public.membros (user_id, nome) values (v_uid, v_nome)
+  on conflict (user_id) do update set nome = excluded.nome;
+
+  -- A carteira pessoal herda o nome no fork; mantém o rótulo dela coerente.
+  update public.wallets set nome = v_nome where tipo = 'pessoal' and dono = v_uid;
+end;
+$$;
+
+grant execute on function public.definir_meu_nome(text) to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- transactions.carteira_id: a qual carteira cada operação pertence.

@@ -24,12 +24,14 @@ export function onAuthChange(cb: (session: Session | null) => void): () => void 
   return () => data.subscription.unsubscribe();
 }
 
-/** Nome de exibição do membro logado — usado como rótulo no ledger. */
-export function membroAtual(session: Session | null): string {
-  const u = session?.user;
-  if (!u) return "—";
-  const meta = u.user_metadata as { name?: string; full_name?: string } | undefined;
-  return meta?.name?.trim() || meta?.full_name?.trim() || u.email || u.id;
+/**
+ * Palpite de nome para pré-preencher o cadastro no primeiro acesso: o que o
+ * admin tiver posto em `user_metadata` ao convidar. Vazio é o normal — o nome
+ * que vale é o que a própria pessoa cadastra (tabela `membros`).
+ */
+export function nomeSugerido(session: Session | null): string {
+  const meta = session?.user?.user_metadata as { name?: string; full_name?: string } | undefined;
+  return meta?.name?.trim() || meta?.full_name?.trim() || "";
 }
 
 /** Id (uuid) do usuário logado — chave em membros/wallets. */
