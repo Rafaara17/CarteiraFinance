@@ -220,7 +220,7 @@ a:hover { text-decoration: underline; }
 }
 .topo__rot { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--texto-3); font-weight: 700; }
 
-.conteudo { padding: 1.5rem 1.6rem 4rem; max-width: 1280px; width: 100%; }
+.conteudo { padding: 1.5rem 1.6rem 4rem; width: 100%; flex: 1; }
 
 /* barra inferior no celular */
 .mobile-nav { display: none; }
