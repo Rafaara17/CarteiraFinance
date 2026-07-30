@@ -62,12 +62,38 @@ async function main() {
 }
 
 /**
- * Baixa o CSV consumindo o corpo em pedaços. `TextDecoder` não-fatal de propósito:
- * nenhum nome de título tem acento ("Tesouro Prefixado", "Tesouro IPCA+", "Tesouro
- * Selic"...), então um byte estranho no cabeçalho não pode derrubar a rotina — e o
- * casamento de coluna já ignora acento (ver COLUNAS em src/engine/tesouro.ts).
+ * Espera antes de cada tentativa de download. O servidor do Tesouro Transparente
+ * recusa conexão de forma intermitente a partir dos runners do GitHub: metade das
+ * execuções agendadas morria em ConnectTimeout, sem trocar um byte, enquanto o
+ * mesmo endereço respondia em ~300 ms de dentro do Brasil. A indisponibilidade
+ * dura minutos, então basta insistir — não é caso de trocar de fonte.
  */
+const ESPERAS_MS = [0, 20_000, 60_000, 150_000];
+
 async function baixarCsv(): Promise<string> {
+  let ultimoErro: unknown;
+  for (const [i, espera] of ESPERAS_MS.entries()) {
+    if (espera > 0) {
+      console.log(`Nova tentativa (${i + 1}/${ESPERAS_MS.length}) em ${espera / 1000}s...`);
+      await new Promise((r) => setTimeout(r, espera));
+    }
+    try {
+      return await baixarUmaVez();
+    } catch (e) {
+      ultimoErro = e;
+      console.warn(`Falha ao baixar: ${e instanceof Error ? e.message : e}`);
+    }
+  }
+  throw ultimoErro;
+}
+
+/**
+ * Consome o corpo em pedaços. `TextDecoder` não-fatal de propósito: nenhum nome de
+ * título tem acento ("Tesouro Prefixado", "Tesouro IPCA+", "Tesouro Selic"...),
+ * então um byte estranho no cabeçalho não pode derrubar a rotina — e o casamento de
+ * coluna já ignora acento (ver COLUNAS em src/engine/tesouro.ts).
+ */
+async function baixarUmaVez(): Promise<string> {
   const r = await fetch(CSV_URL, { headers: { "User-Agent": "CarteiraFinance" } });
   if (!r.ok) throw new Error(`HTTP ${r.status} ao baixar o CSV do Tesouro`);
   if (!r.body) throw new Error("resposta sem corpo");
