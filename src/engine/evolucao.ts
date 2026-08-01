@@ -280,6 +280,32 @@ function precosVazios(cambio: Record<string, number>): PrecosSnapshot {
   return { atualizadoEm: null, cambio, acoes: {}, tesouro: {} };
 }
 
+/** Um ponto da rentabilidade rebaseada (%) de uma série de patrimônio. */
+export interface PontoRebase {
+  data: string;
+  pct: number;
+}
+
+/**
+ * Fatia uma série de patrimônio num intervalo e rebaseia a 0% no primeiro ponto
+ * — a mesma conta que `computarEvolucao` faz no campo `carteira` de
+ * `serieRentabilidade`, mas partindo de uma série JÁ calculada.
+ *
+ * Vale porque o patrimônio de um dia não depende do intervalo pedido: o
+ * forward-fill roda sobre todo o histórico e o intervalo só filtra quais pontos
+ * entram na saída. Assim dá para desenhar N carteiras num gráfico sem repetir o
+ * replay do ledger de cada uma.
+ */
+export function rentabilidadeDaSerie(serie: PontoSerie[], intervalo: Intervalo): PontoRebase[] {
+  const dentro = serie.filter((p) => p.data >= intervalo.de && p.data <= intervalo.ate);
+  if (dentro.length === 0) return [];
+  const base = dentro[0].patrimonioBRL;
+  return dentro.map((p) => ({
+    data: p.data,
+    pct: base > 0 ? (p.patrimonioBRL / base - 1) * 100 : 0,
+  }));
+}
+
 /** Retorno de um período fechado (mês, semana...) do agrupamento da série. */
 export interface RetornoPeriodo {
   chave: string;
@@ -292,8 +318,8 @@ export interface RetornoPeriodo {
  * cada período rende do fechamento do anterior até o seu próprio fechamento. O
  * primeiro usa a abertura do período como base.
  *
- * Serve tanto ao retorno mensal quanto ao semanal (engine/semanal.ts), que só
- * mudam a chave.
+ * Serve tanto ao retorno mensal quanto ao ranking por dia/semana/mês
+ * (engine/disputa.ts), que só mudam a chave.
  */
 export function retornosPorChave(
   serie: PontoSerie[],

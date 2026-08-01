@@ -138,8 +138,6 @@ export function App() {
           precos={precos}
           snapshotLiga={dados.snapshotLiga}
           snapshotMinha={dados.snapshotMinha}
-          transacoesLiga={dados.transacoesLiga}
-          transacoesMinha={dados.transacoesMinha}
           wallets={dados.wallets}
           membros={dados.membros}
           transacoesPorCarteira={dados.transacoesPorCarteira}

@@ -366,6 +366,35 @@ tbody tr:last-child td { border-bottom: none; }
 .td-principal { font-weight: 600; }
 .td-sub { color: var(--texto-3); font-size: 0.74rem; font-weight: 400; }
 
+/* Seletor da medida dentro do cabeçalho da coluna: é ali que se lê o que está
+   sendo comparado, então é ali que se troca. <select> nativo pela seta, pelo
+   teclado e pelo picker do celular. */
+.th-seletor {
+  width: auto;
+  padding: 0.12rem 0.2rem 0.12rem 0.4rem;
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-sm);
+  background: var(--superficie-2);
+  color: var(--marca);
+  font: inherit;
+  font-weight: 700;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+.th-seletor:hover { border-color: var(--marca); }
+
+/* Nome clicável dentro da tabela (abre a carteira daquele membro). */
+.link-carteira {
+  border: none; background: none; padding: 0;
+  color: inherit; font: inherit; font-weight: 600;
+  text-align: left; cursor: pointer;
+  border-bottom: 1px dotted var(--borda-forte);
+}
+.link-carteira:hover { background: none; color: var(--marca); border-bottom-color: var(--marca); }
+.link-carteira:active { transform: none; }
+.link-carteira[aria-expanded="true"] { color: var(--marca); border-bottom-color: var(--marca); }
+
 /* barra de peso dentro da célula */
 .barra-peso { display: flex; align-items: center; gap: 0.5rem; justify-content: flex-end; }
 .barra-peso__trilho {

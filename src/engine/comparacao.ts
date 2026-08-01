@@ -5,8 +5,8 @@
 // que torna os retornos diretamente comparáveis.
 //
 // Aqui o ranking é ACUMULADO (desde o início). O ranking que vale para a disputa
-// da liga é o semanal, em engine/semanal.ts, que consome estes mesmos números
-// para a coluna de acumulado.
+// da liga é o por período (dia/semana/mês), em engine/disputa.ts, que consome
+// estes mesmos números para a coluna de acumulado.
 
 import { computarPortfolio } from "./portfolio";
 import type { Ativo, Config, PortfolioSnapshot, PrecosSnapshot, Transacao } from "./types";
@@ -28,6 +28,12 @@ export interface ItemRanking {
   ehMinha: boolean;
   patrimonioBRL: number;
   retornoTotalPct: number;
+  /**
+   * Snapshot completo (posições, caixa, alocação) da carteira. Já foi calculado
+   * aqui para tirar o patrimônio, então carregá-lo junto é de graça — é o que
+   * permite abrir a carteira de outro membro sem recomputar nada.
+   */
+  snapshot: PortfolioSnapshot;
 }
 
 /** Diferença de desempenho entre a minha carteira e a da liga. */
@@ -65,6 +71,7 @@ export function computarRanking(
       ehMinha: c.id === minhaCarteiraId,
       patrimonioBRL: snap.patrimonioBRL,
       retornoTotalPct: snap.retornoTotalPct,
+      snapshot: snap,
     };
   });
   itens.sort((a, b) => b.retornoTotalPct - a.retornoTotalPct);

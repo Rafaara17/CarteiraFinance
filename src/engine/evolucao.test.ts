@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computarEvolucao, intervaloDoPreset } from "./evolucao";
+import { computarEvolucao, intervaloDoPreset, rentabilidadeDaSerie } from "./evolucao";
 import type { Ativo, Config, HistoricoPrecos, Transacao } from "./types";
 
 const config: Config = {
@@ -105,6 +105,47 @@ describe("computarEvolucao", () => {
     const pu = ev.serie[0].patrimonioBRL - 1000; // patrimônio = caixa(1000) + valor do título
     expect(pu).toBeGreaterThan(1000);
     expect(pu).toBeLessThan(1120);
+  });
+});
+
+describe("rentabilidadeDaSerie", () => {
+  const txs = [compra("2026-01-05T13:00:00Z", "AAA", 10, 100)];
+  const historico: HistoricoPrecos = [
+    { data: "2026-01-05", acoes: { AAA: 100 }, cambio: {}, indices: {} },
+    { data: "2026-01-06", acoes: { AAA: 110 }, cambio: {}, indices: {} },
+    { data: "2026-01-07", acoes: { AAA: 120 }, cambio: {}, indices: {} },
+  ];
+
+  it("dá o mesmo resultado que computarEvolucao para o mesmo intervalo", () => {
+    // É a garantia que permite reaproveitar uma série já calculada no gráfico
+    // de comparação em vez de replayar o ledger de cada carteira de novo.
+    const intervalo = { de: "2026-01-06", ate: "2026-01-07" };
+    const completa = computarEvolucao(config, txs, [AAA], historico, {
+      de: "2026-01-05",
+      ate: "2026-01-07",
+    });
+    const recorte = computarEvolucao(config, txs, [AAA], historico, intervalo);
+
+    expect(rentabilidadeDaSerie(completa.serie, intervalo)).toEqual(
+      recorte.serieRentabilidade.map((p) => ({ data: p.data, pct: p.carteira })),
+    );
+  });
+
+  it("rebaseia a 0% no primeiro ponto dentro do intervalo", () => {
+    const r = rentabilidadeDaSerie(
+      [
+        { data: "2026-01-05", patrimonioBRL: 1000 },
+        { data: "2026-01-06", patrimonioBRL: 1100 },
+      ],
+      { de: "2026-01-05", ate: "2026-01-06" },
+    );
+    expect(r[0].pct).toBe(0);
+    expect(r[1].pct).toBeCloseTo(10, 9);
+  });
+
+  it("intervalo sem pontos devolve vazio", () => {
+    const serie = [{ data: "2026-01-05", patrimonioBRL: 1000 }];
+    expect(rentabilidadeDaSerie(serie, { de: "2026-02-01", ate: "2026-02-28" })).toEqual([]);
   });
 });
 
