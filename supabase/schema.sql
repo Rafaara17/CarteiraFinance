@@ -530,3 +530,109 @@ create index if not exists tesouro_titulos_vencimento_idx
 -- dezenas de linhas de uma vez. Assinar isso viraria uma enxurrada de eventos para
 -- recarregar dado que não mudou. A tela do Tesouro busca sob demanda e tem botão
 -- de atualizar.
+
+-- ===========================================================================
+-- REINÍCIO DAS CARTEIRAS INDIVIDUAIS (exclusivo do admin)
+-- ---------------------------------------------------------------------------
+-- O ledger é append-only de propósito: `transactions` não tem policy de UPDATE
+-- nem de DELETE, então ninguém apaga a própria operação depois de registrada —
+-- é isso que faz o ranking valer alguma coisa.
+--
+-- Recomeçar a temporada é outra coisa: zerar as carteiras individuais de uma vez
+-- precisa ser um ATO ADMINISTRATIVO EXPLÍCITO, não um buraco na regra. Daí o
+-- desenho:
+--   - a exceção mora numa única função SECURITY DEFINER (a única porta que apaga);
+--   - a porta confere `eh_admin()` a cada chamada;
+--   - toda passagem fica registrada em `carteiras_reinicios` (quem, quando,
+--     quanto) — a integridade que se abre mão no ledger volta como auditoria.
+--
+-- A carteira da LIGA nunca é tocada aqui: ela é o histórico oficial da liga.
+-- ===========================================================================
+
+create table if not exists public.carteiras_reinicios (
+  id           uuid primary key default gen_random_uuid(),
+  executado_em timestamptz not null default now(),
+  executor     uuid references auth.users(id),
+  -- 'todas' | 'uma' — o recorte pedido, não o resultado (0 carteiras é um fato
+  -- que também merece registro: mostra que a tentativa aconteceu).
+  escopo       text not null check (escopo in ('todas','uma')),
+  dono         uuid,    -- preenchido só quando o reinício foi de uma pessoa
+  manteve      boolean not null, -- true = zerou o ledger sem apagar a carteira
+  carteiras    int not null,
+  operacoes    int not null
+);
+
+alter table public.carteiras_reinicios enable row level security;
+
+drop policy if exists carteiras_reinicios_select on public.carteiras_reinicios;
+create policy carteiras_reinicios_select on public.carteiras_reinicios
+  for select to authenticated using (true);
+-- (sem policy de escrita => só a RPC abaixo grava; ninguém apaga o registro)
+
+-- ---------------------------------------------------------------------------
+-- reiniciar_carteiras_pessoais: apaga o ledger das carteiras individuais.
+--
+--   p_manter_carteiras = false (padrão)
+--       Apaga também as carteiras. Cada membro volta à tela de ativação e
+--       reescolhe entre copiar a liga e começar do zero. É o reinício "de
+--       temporada": a `criada_em` nova impede que a carteira apareça vencendo
+--       períodos anteriores à recriação.
+--   p_manter_carteiras = true
+--       Mantém a carteira e só zera o ledger — o replay do motor devolve o
+--       capital inicial todo em caixa. A `criada_em` antiga permanece, então a
+--       carteira segue disputando períodos desde a ativação original.
+--
+--   p_dono = null (padrão) => todas as carteiras individuais.
+--   p_dono = <user_id>     => só a carteira daquela pessoa (redo individual).
+--
+-- Devolve {"carteiras": n, "operacoes": m} — o que foi de fato apagado.
+-- ---------------------------------------------------------------------------
+create or replace function public.reiniciar_carteiras_pessoais(
+  p_manter_carteiras boolean default false,
+  p_dono             uuid    default null
+) returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_ids   uuid[];
+  v_carts int;
+  v_ops   int := 0;
+begin
+  if not public.eh_admin() then
+    raise exception 'só um admin reinicia as carteiras individuais';
+  end if;
+
+  select coalesce(array_agg(id), '{}'::uuid[]) into v_ids
+  from public.wallets
+  where tipo = 'pessoal' and (p_dono is null or dono = p_dono);
+
+  v_carts := cardinality(v_ids);
+
+  if v_carts > 0 then
+    with apagadas as (
+      delete from public.transactions where carteira_id = any(v_ids) returning 1
+    )
+    select count(*)::int into v_ops from apagadas;
+
+    if not coalesce(p_manter_carteiras, false) then
+      -- Depois do ledger: transactions.carteira_id referencia wallets(id) sem
+      -- cascade, então a ordem inversa esbarraria na FK.
+      delete from public.wallets where id = any(v_ids);
+    end if;
+  end if;
+
+  insert into public.carteiras_reinicios
+    (executor, escopo, dono, manteve, carteiras, operacoes)
+  values
+    (auth.uid(),
+     case when p_dono is null then 'todas' else 'uma' end,
+     p_dono,
+     coalesce(p_manter_carteiras, false),
+     v_carts, v_ops);
+
+  return jsonb_build_object('carteiras', v_carts, 'operacoes', v_ops);
+end;
+$$;
+
+-- A checagem de admin é DENTRO da função; o grant é para `authenticated` porque
+-- é o app logado que chama. Quem não é admin recebe a exceção, não o dado.
+revoke execute on function public.reiniciar_carteiras_pessoais(boolean, uuid) from public, anon;
+grant  execute on function public.reiniciar_carteiras_pessoais(boolean, uuid) to authenticated;

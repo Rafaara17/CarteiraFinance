@@ -1,12 +1,14 @@
 import { useState } from "react";
-import type { Membro, Papel } from "../data/supabaseClient";
+import { reiniciarCarteirasPessoais, type Membro, type Papel, type Wallet } from "../data/supabaseClient";
 import { semearHistorico } from "../data/cotacoes";
 import { invalidarHistorico } from "./useHistorico";
 
 interface Props {
   membros: Membro[];
+  wallets: Wallet[];
   meuUserId: string | null;
   atualizarPapelMembro: (userId: string, papel: Papel) => Promise<void>;
+  recarregar: () => void;
 }
 
 const PAPEIS: Array<{ id: Papel; rotulo: string; desc: string }> = [
@@ -21,7 +23,7 @@ const SQL_PRIMEIRO_ADMIN = `insert into public.membros (user_id, papel)
 select id, 'admin' from auth.users where email = 'SEU-EMAIL@exemplo.com'
 on conflict (user_id) do update set papel = 'admin';`;
 
-export function Admin({ membros, meuUserId, atualizarPapelMembro }: Props) {
+export function Admin({ membros, wallets, meuUserId, atualizarPapelMembro, recarregar }: Props) {
   const [salvando, setSalvando] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ tipo: "ok" | "erro"; texto: string } | null>(null);
 
@@ -130,6 +132,8 @@ export function Admin({ membros, meuUserId, atualizarPapelMembro }: Props) {
 
       <SerieHistorica />
 
+      <ReiniciarCarteiras membros={membros} wallets={wallets} recarregar={recarregar} />
+
       <details className="card">
         <summary style={{ cursor: "pointer", fontWeight: 600 }}>
           Como criar o primeiro admin (só uma vez, no Supabase)
@@ -149,6 +153,157 @@ export function Admin({ membros, meuUserId, atualizarPapelMembro }: Props) {
           <code>{SQL_PRIMEIRO_ADMIN}</code>
         </pre>
       </details>
+    </div>
+  );
+}
+
+/**
+ * Reinício das carteiras individuais — o recomeço de temporada.
+ *
+ * É a única ação do app que APAGA transação, e por isso ela é deliberadamente
+ * chata: escolher o alvo, escolher o modo e digitar a palavra. O ledger segue
+ * append-only para todos os outros caminhos (ver supabase/schema.sql); aqui a
+ * exceção é explícita, restrita a admin pelo banco e registrada em
+ * `carteiras_reinicios`.
+ */
+const PALAVRA_CHAVE = "REINICIAR";
+
+type ModoReinicio = "apagar" | "zerar";
+
+function ReiniciarCarteiras({
+  membros,
+  wallets,
+  recarregar,
+}: {
+  membros: Membro[];
+  wallets: Wallet[];
+  recarregar: () => void;
+}) {
+  const [alvo, setAlvo] = useState("todas");
+  const [modo, setModo] = useState<ModoReinicio>("apagar");
+  const [confirmacao, setConfirmacao] = useState("");
+  const [ocupado, setOcupado] = useState(false);
+  const [msg, setMsg] = useState<{ tipo: "ok" | "erro"; texto: string } | null>(null);
+
+  const pessoais = wallets.filter((w) => w.tipo === "pessoal");
+  const nomeDoDono = (dono: string | null) =>
+    membros.find((m) => m.userId === dono)?.nome ?? "sem nome";
+  const quantas = alvo === "todas" ? pessoais.length : pessoais.filter((w) => w.dono === alvo).length;
+  const liberado = confirmacao.trim().toUpperCase() === PALAVRA_CHAVE && quantas > 0;
+
+  async function reiniciar() {
+    setMsg(null);
+    setOcupado(true);
+    try {
+      const r = await reiniciarCarteirasPessoais({
+        manterCarteiras: modo === "zerar",
+        dono: alvo === "todas" ? null : alvo,
+      });
+      setConfirmacao("");
+      recarregar();
+      setMsg({
+        tipo: "ok",
+        texto:
+          `Pronto: ${r.carteiras} ${r.carteiras === 1 ? "carteira" : "carteiras"} e ` +
+          `${r.operacoes} ${r.operacoes === 1 ? "operação" : "operações"} ` +
+          (modo === "apagar"
+            ? "removidas. Cada membro volta à tela de ativação no próximo acesso."
+            : "zeradas. As carteiras continuam ativas, com o capital inicial em caixa."),
+      });
+    } catch (e) {
+      setMsg({ tipo: "erro", texto: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <div className="card__cab">
+        <h3>Reiniciar carteiras individuais</h3>
+        <span className="muted">
+          {pessoais.length} {pessoais.length === 1 ? "carteira ativa" : "carteiras ativas"}
+        </span>
+      </div>
+      <p className="muted" style={{ marginTop: 0 }}>
+        Apaga o histórico de operações das carteiras <strong>individuais</strong> para começar uma nova
+        temporada. A <strong>carteira da liga não é tocada</strong> — o histórico oficial dela continua
+        intacto, assim como o registro de ativos e a série histórica de preços.
+      </p>
+
+      <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "0.9rem" }}>
+        <label>
+          <span className="muted" style={{ display: "block", fontSize: "0.84rem", marginBottom: "0.3rem" }}>
+            Quais carteiras
+          </span>
+          <select value={alvo} onChange={(e) => setAlvo(e.target.value)} disabled={ocupado} style={{ width: "100%" }}>
+            <option value="todas">Todas as carteiras individuais</option>
+            {pessoais.map((w) => (
+              <option key={w.id} value={w.dono ?? w.id}>
+                Só a de {nomeDoDono(w.dono)}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label>
+          <span className="muted" style={{ display: "block", fontSize: "0.84rem", marginBottom: "0.3rem" }}>
+            Como reiniciar
+          </span>
+          <select
+            value={modo}
+            onChange={(e) => setModo(e.target.value as ModoReinicio)}
+            disabled={ocupado}
+            style={{ width: "100%" }}
+          >
+            <option value="apagar">Apagar a carteira — a pessoa reativa e reescolhe</option>
+            <option value="zerar">Zerar o histórico — a carteira fica com o caixa cheio</option>
+          </select>
+        </label>
+      </div>
+
+      <p className="muted" style={{ fontSize: "0.84rem", marginBottom: "0.6rem" }}>
+        {modo === "apagar" ? (
+          <>
+            A carteira deixa de existir. No próximo acesso cada membro vê de novo a tela de ativação e
+            escolhe entre copiar a liga e começar do zero. Como a data de criação é nova, ninguém aparece
+            vencendo períodos anteriores ao recomeço.
+          </>
+        ) : (
+          <>
+            A carteira continua ativa e volta ao capital inicial em caixa, sem nenhuma posição. A data de
+            ativação original é mantida — ela segue disputando os períodos desde então, agora com a série
+            recalculada a partir do caixa.
+          </>
+        )}
+      </p>
+
+      <label style={{ display: "block", marginBottom: "0.7rem" }}>
+        <span className="muted" style={{ display: "block", fontSize: "0.84rem", marginBottom: "0.3rem" }}>
+          Não tem desfazer. Digite <strong>{PALAVRA_CHAVE}</strong> para liberar o botão.
+        </span>
+        <input
+          value={confirmacao}
+          onChange={(e) => setConfirmacao(e.target.value)}
+          disabled={ocupado || quantas === 0}
+          placeholder={PALAVRA_CHAVE}
+          aria-label={`Digite ${PALAVRA_CHAVE} para confirmar`}
+        />
+      </label>
+
+      <button className="perigo" onClick={() => void reiniciar()} disabled={!liberado || ocupado}>
+        {ocupado
+          ? "Reiniciando…"
+          : quantas === 0
+            ? "Nenhuma carteira individual para reiniciar"
+            : `Reiniciar ${quantas} ${quantas === 1 ? "carteira" : "carteiras"}`}
+      </button>
+
+      {msg && (
+        <p className={msg.tipo === "erro" ? "alerta" : "aviso"} style={{ marginBottom: 0, marginTop: "0.9rem" }}>
+          {msg.texto}
+        </p>
+      )}
     </div>
   );
 }

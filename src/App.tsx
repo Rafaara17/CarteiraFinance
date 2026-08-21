@@ -117,7 +117,15 @@ export function App() {
 
   function conteudo() {
     if (aba === "admin" && dados.ehAdmin) {
-      return <Admin membros={dados.membros} meuUserId={uid} atualizarPapelMembro={dados.atualizarPapelMembro} />;
+      return (
+        <Admin
+          membros={dados.membros}
+          wallets={dados.wallets}
+          meuUserId={uid}
+          atualizarPapelMembro={dados.atualizarPapelMembro}
+          recarregar={dados.recarregar}
+        />
+      );
     }
 
     if (!config || !precos) {

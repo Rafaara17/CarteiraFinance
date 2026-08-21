@@ -13,9 +13,9 @@ name: Tesouro Direto (catálogo e PU)
 # Para popular o catálogo agora (primeira vez, ou depois de mexer no schema):
 # "Run workflow" aqui.
 on:
-  # Dias úteis, 21:00 UTC (~18h BRT) — o arquivo do dia já está publicado.
+  # Dias úteis, 22:00 UTC (~19h BRT) — o arquivo do dia já está publicado.
   schedule:
-    - cron: "0 21 * * 1-5"
+    - cron: "0 22 * * 1-5"
   workflow_dispatch: {}
 
 permissions:

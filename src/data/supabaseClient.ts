@@ -161,6 +161,38 @@ export async function atualizarPapel(userId: string, papel: Papel): Promise<void
   if (error) throw new Error(`Falha ao atualizar papel: ${error.message}`);
 }
 
+/** O que o reinício apagou de fato — vira o texto de confirmação na tela. */
+export interface ResultadoReinicio {
+  carteiras: number;
+  operacoes: number;
+}
+
+export interface OpcoesReinicio {
+  /** true = zera o ledger mantendo a carteira; false = apaga a carteira também. */
+  manterCarteiras: boolean;
+  /** user_id de um membro para reiniciar só a carteira dele; null = todas. */
+  dono?: string | null;
+}
+
+/**
+ * Reinicia as carteiras individuais (só admin — a RPC confere no banco).
+ *
+ * É a única porta que apaga transação: o ledger continua append-only para todo
+ * mundo, e cada chamada daqui fica registrada em `carteiras_reinicios`. A
+ * carteira da liga nunca é afetada.
+ */
+export async function reiniciarCarteirasPessoais(
+  opcoes: OpcoesReinicio,
+): Promise<ResultadoReinicio> {
+  const { data, error } = await supabase.rpc("reiniciar_carteiras_pessoais", {
+    p_manter_carteiras: opcoes.manterCarteiras,
+    p_dono: opcoes.dono ?? null,
+  });
+  if (error) throw new Error(`Falha ao reiniciar: ${error.message}`);
+  const r = (data ?? {}) as { carteiras?: number; operacoes?: number };
+  return { carteiras: r.carteiras ?? 0, operacoes: r.operacoes ?? 0 };
+}
+
 /**
  * Carrega a série histórica diária (tabela prices_history) para reconstruir a
  * evolução do patrimônio nos relatórios. Ordenada por data (ascendente).
