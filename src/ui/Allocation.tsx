@@ -8,12 +8,14 @@ const ROTULO_CLASSE: Record<string, string> = {
   fii: "FIIs",
   tesouro: "Tesouro Direto",
   bond: "Renda fixa",
+  cripto: "Cripto",
 };
 
 export function Allocation({ snapshot }: { snapshot: PortfolioSnapshot }) {
   const paleta = usarPaleta(useTemaEscuro());
 
-  if (snapshot.valorInvestidoBRL <= 0) {
+  // Derivativos ficam fora das pizzas (valor pode ser negativo) — ver a aba Proteção.
+  if (snapshot.alocacaoPorClasse.length === 0) {
     return (
       <div className="card">
         <div className="vazio">

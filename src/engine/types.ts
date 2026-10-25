@@ -2,7 +2,7 @@
 // O engine é TypeScript puro (sem dependência de DOM/React) para ser testável.
 
 export type Moeda = string; // "BRL", "USD", ...
-export type ClasseAtivo = "acao" | "etf" | "fii" | "tesouro" | "bond";
+export type ClasseAtivo = "acao" | "etf" | "fii" | "tesouro" | "bond" | "futuro" | "cripto";
 export type Bolsa = "B3" | "NYSE" | "NASDAQ" | "TESOURO" | "OUTRA" | string;
 
 /** Metadados de renda fixa (Tesouro Direto ou título genérico). */
@@ -32,7 +32,25 @@ export interface BondMeta {
   tesouroSlug?: string;
 }
 
-/** Ativo registrado (ações/ETF/FII/tesouro/bond). Vive em data/assets.json. */
+/**
+ * Metadados de um contrato futuro da B3. A especificação de cada mercadoria
+ * (tamanho, margem, regra de vencimento) mora em engine/derivativos.ts; aqui
+ * fica só o que identifica ESTE contrato.
+ */
+export interface DerivativoMeta {
+  tipo: "futuro";
+  /** Código da mercadoria (WDO, DOL, WIN, BGI...). */
+  mercadoria?: string;
+  /** Ativo-objeto: "USD" no dólar, "IBOV" no índice, o código da mercadoria nas commodities. */
+  subjacente: string;
+  /** Data ISO (AAAA-MM-DD) do vencimento. */
+  vencimento: string;
+  /** Quanto 1 ponto de preço vale por contrato (ex.: WDO = 10, pois cota R$ por US$ 1.000 e o contrato é de US$ 10 mil). */
+  multiplicador: number;
+  moedaCotacao: Moeda;
+}
+
+/** Ativo registrado (ações/ETF/FII/tesouro/bond/derivativos). Vive em data/assets.json. */
 export interface Ativo {
   id: string; // normalmente o ticker em maiúsculas, ou o id do título
   tipo: ClasseAtivo;
@@ -41,6 +59,7 @@ export interface Ativo {
   moeda: Moeda;
   nome: string;
   bond?: BondMeta;
+  derivativo?: DerivativoMeta;
 }
 
 export type TipoTransacao = "compra" | "venda" | "provento" | "cupom";
@@ -94,6 +113,19 @@ export interface PrecosSnapshot {
   tesouro: Record<string, number>;
   /** fechamento anterior por ticker (e por moeda) — base da variação do dia. */
   fechamentoAnterior?: Record<string, number>;
+  /** Taxas de juros anuais em decimal: CDI (Brasil) e USD (T-bill 13 semanas). */
+  taxas?: Record<string, number>;
+  /** Último ajuste oficial da B3 por código de futuro (ex.: "WDOZ26"). */
+  ajustes?: Record<string, AjusteB3>;
+}
+
+/** Preço de ajuste de um futuro num pregão (tabela b3_ajustes). */
+export interface AjusteB3 {
+  ajuste: number;
+  /** pregão a que o ajuste se refere (AAAA-MM-DD). */
+  data: string;
+  /** spot do ativo-objeto no fechamento daquele pregão — move o ajuste no intradiário. */
+  spotRef?: number;
 }
 
 /**
@@ -142,7 +174,23 @@ export interface Posicao {
    *  - "custo":   sem cotação ainda — avaliado pelo custo, para que o dinheiro
    *               NÃO suma do patrimônio (ver computarPortfolio).
    */
-  marcacao?: "mercado" | "linear" | "custo";
+  marcacao?: "mercado" | "linear" | "custo" | "b3" | "ajuste" | "teorico";
+  /** Só nos futuros: lado, preço médio, exposição e margem. */
+  derivativo?: InfoDerivativo;
+}
+
+/** Detalhes de uma posição em futuro (qtd da Posicao vem COM SINAL: < 0 = vendido). */
+export interface InfoDerivativo {
+  meta: DerivativoMeta;
+  lado: "comprado" | "vendido";
+  /** preço médio de entrada, na moeda de cotação do contrato. */
+  precoMedio: number;
+  /** valor nocional com sinal, em BRL (contratos × preço × multiplicador × câmbio). */
+  nocionalBRL: number;
+  /** margem de garantia exigida pela posição, em BRL. */
+  margemBRL: number;
+  /** true quando o vencimento já passou: aguardando liquidação. */
+  vencido: boolean;
 }
 
 export interface AlocacaoItem {
@@ -171,4 +219,8 @@ export interface PortfolioSnapshot {
   alocacaoPorClasse: AlocacaoItem[];
   alocacaoPorBolsa: AlocacaoItem[];
   alocacaoPorMoeda: AlocacaoItem[];
+  /** margem de garantia somada das posições em derivativos (BRL). */
+  margemRequeridaBRL: number;
+  /** caixa que sobra para operar depois de reservar a margem. */
+  caixaLivreBRL: number;
 }

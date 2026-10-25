@@ -636,3 +636,106 @@ $$;
 -- é o app logado que chama. Quem não é admin recebe a exceção, não o dado.
 revoke execute on function public.reiniciar_carteiras_pessoais(boolean, uuid) from public, anon;
 grant  execute on function public.reiniciar_carteiras_pessoais(boolean, uuid) to authenticated;
+
+-- ===========================================================================
+-- DERIVATIVOS (futuros de dólar, Ibovespa e commodities da B3)
+--
+-- Bloco idempotente: rode de novo sem medo. Nada aqui muda o ledger — compra e
+-- venda de futuro continuam sendo 'compra'/'venda' em `transactions`; quem
+-- interpreta posição vendida, margem e ajuste é o engine (src/engine/derivativos.ts).
+-- ===========================================================================
+
+-- Metadados do contrato (mercadoria, objeto, vencimento, multiplicador).
+alter table public.assets add column if not exists derivativo jsonb;
+
+-- Juros usados no preço teórico do dólar futuro, escritos só pela service role:
+--   taxas      {"CDI": 0.149, "USD": 0.042}  (decimal ao ano)
+--   insumos_em {"CDI": "<iso>", "USD": "<iso>"}  (cache da Edge Function)
+alter table public.prices_latest add column if not exists taxas      jsonb not null default '{}'::jsonb;
+alter table public.prices_latest add column if not exists insumos_em jsonb not null default '{}'::jsonb;
+
+-- Limpeza da versão com opções (se ela chegou a ser rodada): sem volatilidade.
+drop function if exists public.merge_insumos_derivativos(jsonb, jsonb, jsonb);
+alter table public.prices_latest drop column if exists volatilidade;
+
+create or replace function public.merge_insumos_derivativos(
+  p_taxas jsonb default '{}'::jsonb,
+  p_em    jsonb default '{}'::jsonb
+) returns void language sql security definer set search_path = public as $$
+  update public.prices_latest
+     set taxas      = taxas      || coalesce(p_taxas, '{}'::jsonb),
+         insumos_em = insumos_em || coalesce(p_em, '{}'::jsonb)
+   where id = 1;
+$$;
+
+revoke execute on function public.merge_insumos_derivativos(jsonb, jsonb) from public, anon, authenticated;
+grant  execute on function public.merge_insumos_derivativos(jsonb, jsonb) to service_role;
+
+-- ---------------------------------------------------------------------------
+-- b3_ajustes: preço de AJUSTE oficial de cada futuro no último pregão.
+-- Escrito pela Action "Ajustes B3" (service role) ou pelo admin via RPC abaixo.
+-- spot_ref = spot do objeto no fechamento: o app move o ajuste por ele no
+-- intradiário (ajuste × spot agora / spot_ref).
+-- ---------------------------------------------------------------------------
+create table if not exists public.b3_ajustes (
+  codigo          text primary key,          -- ex.: WDOZ26
+  mercadoria      text not null,             -- ex.: WDO
+  vencimento      date not null,
+  ajuste          numeric not null,
+  ajuste_anterior numeric,
+  data_pregao     date not null,
+  spot_ref        numeric,
+  fonte           text not null default 'b3',
+  atualizado_em   timestamptz not null default now()
+);
+
+alter table public.b3_ajustes enable row level security;
+
+drop policy if exists b3_ajustes_select on public.b3_ajustes;
+create policy b3_ajustes_select on public.b3_ajustes
+  for select to authenticated using (true);
+-- (sem policy de escrita => só service role ou a RPC de admin)
+
+-- Registro manual (só admin): rede de segurança para quando a Action não
+-- conseguir baixar o arquivo da B3. Boi, milho e etanol dependem disto ou dela.
+create or replace function public.registrar_ajuste_b3(
+  p_codigo     text,
+  p_ajuste     numeric,
+  p_data       date,
+  p_vencimento date
+) returns void language plpgsql security definer set search_path = public as $$
+begin
+  if not public.eh_admin() then
+    raise exception 'só admin pode registrar ajuste';
+  end if;
+  if p_ajuste is null or p_ajuste <= 0 then
+    raise exception 'ajuste inválido';
+  end if;
+  insert into public.b3_ajustes as a
+    (codigo, mercadoria, vencimento, ajuste, data_pregao, fonte, atualizado_em)
+  values
+    (upper(p_codigo), left(upper(p_codigo), 3), p_vencimento, p_ajuste, p_data, 'manual', now())
+  on conflict (codigo) do update
+     set ajuste_anterior = a.ajuste,
+         ajuste          = excluded.ajuste,
+         data_pregao     = excluded.data_pregao,
+         vencimento      = excluded.vencimento,
+         -- Ajuste digitado não tem spot de referência: não deve ser "movido".
+         spot_ref        = null,
+         fonte           = 'manual',
+         atualizado_em   = now();
+end;
+$$;
+
+revoke execute on function public.registrar_ajuste_b3(text, numeric, date, date) from public, anon;
+grant  execute on function public.registrar_ajuste_b3(text, numeric, date, date) to authenticated;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'b3_ajustes'
+  ) then
+    alter publication supabase_realtime add table public.b3_ajustes;
+  end if;
+end $$;

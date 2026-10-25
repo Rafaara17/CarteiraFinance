@@ -17,8 +17,16 @@ export interface CotacoesVivas {
   cambio: Record<string, number>;
   acoes: Record<string, number>;
   fechamentoAnterior: Record<string, number>;
+  /** juros anuais (CDI, USD) — só quando pedidos com `taxas: true`. */
+  taxas?: Record<string, number>;
   /** tickers que o Yahoo não soube cotar (ficam avaliados a custo). */
   falhas: string[];
+}
+
+/** Insumos extras dos futuros, pedidos junto da cotação. */
+export interface OpcoesCotacao {
+  /** juros (CDI e T-bill) — base do preço teórico do dólar futuro. */
+  taxas?: boolean;
 }
 
 /** Ativo resolvido pela busca de ticker — alimenta o formulário de compra. */
@@ -55,11 +63,14 @@ function traduzir(msg: string): string {
  * Cotação ao vivo dos tickers informados. Retorna `null` (em vez de lançar) se o
  * gateway não estiver disponível — o chamador segue com o snapshot do cron.
  */
-export async function buscarCotacoes(tickers: string[]): Promise<CotacoesVivas | null> {
+export async function buscarCotacoes(
+  tickers: string[],
+  opcoes: OpcoesCotacao = {},
+): Promise<CotacoesVivas | null> {
   const lista = [...new Set(tickers.map((t) => t.trim().toUpperCase()).filter(Boolean))];
   if (lista.length === 0) return null;
   try {
-    return await chamar<CotacoesVivas>({ tickers: lista });
+    return await chamar<CotacoesVivas>({ tickers: lista, ...(opcoes.taxas ? { taxas: true } : {}) });
   } catch (e) {
     console.warn("Cotações ao vivo indisponíveis:", e instanceof Error ? e.message : e);
     return null;
@@ -134,5 +145,7 @@ export function mesclarPrecos(base: PrecosSnapshot, vivas: CotacoesVivas | null)
     cambio: { ...base.cambio, ...vivas.cambio },
     acoes: { ...base.acoes, ...vivas.acoes },
     fechamentoAnterior: { ...(base.fechamentoAnterior ?? {}), ...vivas.fechamentoAnterior },
+    taxas: { ...(base.taxas ?? {}), ...(vivas.taxas ?? {}) },
   };
 }
+

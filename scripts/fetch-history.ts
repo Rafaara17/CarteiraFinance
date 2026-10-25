@@ -64,6 +64,8 @@ async function main() {
   const { data: ativos, error } = await db.from("assets").select("ticker,tipo,bolsa,moeda");
   if (error) throw new Error(`Falha ao ler assets: ${error.message}`);
   const equities = ((ativos ?? []) as AtivoLite[]).filter((a) => ehAcao(a.tipo));
+  // Cripto: o Yahoo só tem o par em dólar; convertemos pelo câmbio de cada dia.
+  const criptos = ((ativos ?? []) as AtivoLite[]).filter((a) => a.tipo === "cripto");
 
   // Janela que ESCREVEMOS: os últimos ~1 ano. Dias mais antigos já gravados não
   // são reescritos nem apagados (o upsert nunca deleta) => a série cresce sempre.
@@ -77,11 +79,20 @@ async function main() {
   // materializa datas dentro da janela de escrita (retorna null fora dela), para
   // não criar linhas parciais em dias antigos (que apagariam ações/câmbio deles).
   const porData = new Map<string, LinhaHistorico>();
+  // O upsert reescreve a coluna `acoes` inteira: parte do que já está gravado para
+  // não apagar o que outras rotinas escrevem nela (ajustes dos futuros da B3).
+  const existentes = new Map<string, Record<string, number>>();
+  {
+    const { data: linhasAntigas } = await db.from("prices_history").select("data,acoes").gte("data", writeStart);
+    for (const r of (linhasAntigas ?? []) as Array<{ data: string; acoes: Record<string, number> | null }>) {
+      existentes.set(r.data, r.acoes ?? {});
+    }
+  }
   const linha = (d: string): LinhaHistorico | null => {
     if (d < writeStart) return null;
     let l = porData.get(d);
     if (!l) {
-      l = { data: d, acoes: {}, cambio: {}, indices: {} };
+      l = { data: d, acoes: { ...(existentes.get(d) ?? {}) }, cambio: {}, indices: {} };
       porData.set(d, l);
     }
     return l;
@@ -112,6 +123,38 @@ async function main() {
     console.log(`USD/BRL: ${serie.size} pontos`);
   } catch (e) {
     console.warn("Falha câmbio diário USD/BRL:", msg(e));
+  }
+
+  // --- Cripto em R$ = par em US$ × dólar do dia (forward-fill do câmbio) ---
+  if (criptos.length > 0) {
+    const cambios = [...porData.values()]
+      .filter((l) => typeof l.cambio.USD === "number")
+      .sort((a, b) => a.data.localeCompare(b.data));
+    const dolarEm = (d: string) => {
+      let v: number | undefined;
+      for (const l of cambios) {
+        if (l.data > d) break;
+        v = l.cambio.USD;
+      }
+      return v;
+    };
+    for (const a of criptos) {
+      try {
+        const serie = await historicoYahoo(`${a.ticker}-USD`);
+        let n = 0;
+        for (const [d, usd] of serie) {
+          const fx = dolarEm(d);
+          const l = fx ? linha(d) : null;
+          if (l && fx) {
+            l.acoes[a.ticker] = usd * fx;
+            n++;
+          }
+        }
+        console.log(`${a.ticker} (cripto): ${n} pontos`);
+      } catch (e) {
+        console.warn(`Falha histórico ${a.ticker}:`, msg(e));
+      }
+    }
   }
 
   // --- Índices de mercado + juros/inflação (nível acumulado por data) ---

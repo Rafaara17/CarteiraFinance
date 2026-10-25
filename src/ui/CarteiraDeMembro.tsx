@@ -10,6 +10,7 @@ const ROTULO_CLASSE: Record<string, string> = {
   fii: "FIIs",
   tesouro: "Tesouro Direto",
   bond: "Renda fixa",
+  cripto: "Cripto",
 };
 
 interface Props {

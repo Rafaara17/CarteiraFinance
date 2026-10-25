@@ -19,6 +19,7 @@
  * (ver o comentário do campo `tesouro` abaixo).
  */
 import { createClient } from "@supabase/supabase-js";
+import { REFERENCIAS_YAHOO } from "../src/engine/derivativos";
 
 interface AtivoLite {
   ticker: string;
@@ -93,6 +94,38 @@ async function main() {
       console.log(`${a.ticker} (${symbol}) = ${preco}`);
     } catch (e) {
       console.warn(`Falha ${a.ticker} (${symbol}):`, msg(e));
+    }
+  }
+
+  // Cripto em reais (AwesomeAPI) — o Yahoo só tem o par em dólar.
+  const criptos = lista.filter((a) => a.tipo === "cripto").map((a) => a.ticker);
+  if (criptos.length > 0) {
+    try {
+      const r = await fetch(`https://economia.awesomeapi.com.br/json/last/${criptos.map((c) => `${c}-BRL`).join(",")}`);
+      const j = (await r.json()) as Record<string, { bid?: string; varBid?: string }>;
+      for (const c of criptos) {
+        const q = j[`${c}BRL`];
+        const p = Number(q?.bid);
+        if (!(p > 0)) continue;
+        snap.acoes[c] = p;
+        const v = Number(q?.varBid);
+        if (isFinite(v)) snap.fechamento_anterior[c] = p - v;
+        console.log(`${c} (cripto) = ${p}`);
+      }
+    } catch (e) {
+      console.warn("Falha cripto:", msg(e));
+    }
+  }
+
+  // Referências internacionais dos futuros de café/soja: o upsert abaixo reescreve
+  // `acoes` inteiro, então sem isto o cron apagaria o que a Edge Function gravou.
+  if (lista.some((a) => a.tipo === "futuro")) {
+    for (const ref of REFERENCIAS_YAHOO) {
+      try {
+        snap.acoes[ref] = (await precoYahoo(ref)).preco;
+      } catch (e) {
+        console.warn(`Falha ${ref}:`, msg(e));
+      }
     }
   }
 

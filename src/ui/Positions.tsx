@@ -8,6 +8,8 @@ const ROTULO_CLASSE: Record<string, string> = {
   fii: "FII",
   tesouro: "Tesouro",
   bond: "Título",
+  futuro: "Futuro",
+  cripto: "Cripto",
 };
 
 export function Positions({ snapshot }: { snapshot: PortfolioSnapshot }) {
@@ -24,14 +26,18 @@ export function Positions({ snapshot }: { snapshot: PortfolioSnapshot }) {
     );
   }
 
+  const normais = snapshot.posicoes.filter((p) => !p.derivativo);
+  const derivativos = snapshot.posicoes.filter((p) => p.derivativo);
+  const investido = normais.reduce((s, p) => s + (p.valorBRL ?? 0), 0);
+
   return (
     <div className="grid">
+      {normais.length > 0 && (
       <div className="card">
         <div className="card__cab">
           <h3>Posições</h3>
           <span className="muted">
-            {snapshot.posicoes.length} {snapshot.posicoes.length === 1 ? "ativo" : "ativos"} ·{" "}
-            {fmtBRL(snapshot.valorInvestidoBRL)} investidos
+            {normais.length} {normais.length === 1 ? "ativo" : "ativos"} · {fmtBRL(investido)} investidos
           </span>
         </div>
 
@@ -50,13 +56,16 @@ export function Positions({ snapshot }: { snapshot: PortfolioSnapshot }) {
               </tr>
             </thead>
             <tbody>
-              {snapshot.posicoes.map((p) => (
+              {normais.map((p) => (
                 <Linha key={p.ticker} p={p} />
               ))}
             </tbody>
           </table>
         </div>
       </div>
+      )}
+
+      {derivativos.length > 0 && <TabelaDerivativos posicoes={derivativos} snapshot={snapshot} />}
 
       {snapshot.posicoesSemPreco > 0 && (
         <div className="aviso">
@@ -135,5 +144,88 @@ function Linha({ p }: { p: Posicao }) {
         </div>
       </td>
     </tr>
+  );
+}
+
+/**
+ * Futuros têm leitura própria: o "valor" deles é o P&L acumulado (não há
+ * desembolso). O que mede o tamanho da aposta é o nocional, não o peso no
+ * patrimônio.
+ */
+function TabelaDerivativos({ posicoes, snapshot }: { posicoes: Posicao[]; snapshot: PortfolioSnapshot }) {
+  const vencidas = posicoes.filter((p) => p.derivativo?.vencido).length;
+  return (
+    <div className="card">
+      <div className="card__cab">
+        <h3>Futuros</h3>
+        <span className="muted">
+          margem exigida {fmtBRL(snapshot.margemRequeridaBRL)} · caixa livre {fmtBRL(snapshot.caixaLivreBRL)}
+        </span>
+      </div>
+      <div className="tabela-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Contrato</th>
+              <th className="right">Posição</th>
+              <th className="right">Preço médio</th>
+              <th className="right">Preço atual</th>
+              <th className="right">Nocional</th>
+              <th className="right">Valor</th>
+              <th className="right">P&amp;L</th>
+            </tr>
+          </thead>
+          <tbody>
+            {posicoes.map((p) => {
+              const d = p.derivativo!;
+              const sim = d.meta.moedaCotacao === "BRL" ? "R$" : "US$";
+              return (
+                <tr key={p.ticker}>
+                  <td>
+                    <div className="td-principal">
+                      {p.ticker}
+                      {d.vencido ? (
+                        <span className="badge badge--atencao" style={{ marginLeft: 6 }}>vencido</span>
+                      ) : p.marcacao === "b3" ? (
+                        <span className="badge badge--marca" style={{ marginLeft: 6 }}>B3</span>
+                      ) : p.marcacao === "ajuste" ? (
+                        <span className="badge badge--marca" style={{ marginLeft: 6 }}>ajuste B3</span>
+                      ) : p.marcacao === "teorico" ? (
+                        <span className="badge" style={{ marginLeft: 6 }}>teórico</span>
+                      ) : (
+                        <span className="badge badge--atencao" style={{ marginLeft: 6 }}>sem preço</span>
+                      )}
+                    </div>
+                    <div className="td-sub">
+                      {ROTULO_CLASSE[p.classe]} · {p.nome}
+                    </div>
+                  </td>
+                  <td className="right">
+                    {fmtNum(Math.abs(p.qtd), 0)}
+                    <div className="td-sub">{d.lado}</div>
+                  </td>
+                  <td className="right">{sim} {fmtNum(d.precoMedio, 2)}</td>
+                  <td className="right">
+                    {p.precoAtual == null ? "—" : `${sim} ${fmtNum(p.precoAtual, 2)}`}
+                  </td>
+                  <td className={`right ${sinal(d.nocionalBRL)}`}>{fmtBRL(d.nocionalBRL)}</td>
+                  <td className="right td-principal">{fmtBRL(p.valorBRL)}</td>
+                  <td className={`right ${sinal(p.plNaoRealizadoBRL)}`}>
+                    {fmtBRL(p.plNaoRealizadoBRL)}
+                    <div className="td-sub" style={{ color: "inherit", opacity: 0.75 }}>{fmtPct(p.plNaoRealizadoPct)}</div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {vencidas > 0 && (
+        <p className="aviso" style={{ marginBottom: 0, marginTop: "0.9rem" }}>
+          {vencidas === 1 ? "Há 1 contrato vencido" : `Há ${vencidas} contratos vencidos`}, já avaliado(s) pelo valor
+          final. Liquide em <em>Operar → Futuros</em> para o resultado virar caixa.
+        </p>
+      )}
+    </div>
   );
 }

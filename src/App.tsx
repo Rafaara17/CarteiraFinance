@@ -7,10 +7,12 @@ import { Allocation } from "./ui/Allocation";
 import { AtivarCarteira } from "./ui/AtivarCarteira";
 import { Comparar } from "./ui/Comparar";
 import { Dashboard } from "./ui/Dashboard";
+import type { OrdemSugerida } from "./ui/Derivativos";
 import { History } from "./ui/History";
 import { Login } from "./ui/Login";
 import { PerfilNome } from "./ui/PerfilNome";
 import { Positions } from "./ui/Positions";
+import { Protecao } from "./ui/Protecao";
 import { Report } from "./ui/Report";
 import { useEscopo } from "./ui/SeletorCarteira";
 import { Shell, type ItemNav } from "./ui/Shell";
@@ -23,6 +25,8 @@ export function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [carregandoSessao, setCarregandoSessao] = useState(true);
   const [aba, setAba] = useState("visao");
+  /** Ordem montada pela calculadora de hedge; abre Operar → Futuros preenchido. */
+  const [ordemSugerida, setOrdemSugerida] = useState<OrdemSugerida | null>(null);
   const [escopo, trocarEscopo] = useEscopo();
 
   // Sessão inicial + assinatura de mudanças de autenticação (login/logout).
@@ -60,6 +64,7 @@ export function App() {
     ...(podeOperar ? [{ id: "operar", rotulo: "Operar", ico: "⇄" }] : []),
     { id: "posicoes", rotulo: "Posições", curto: "Posições", ico: "☰" },
     { id: "alocacao", rotulo: "Alocação", ico: "◔" },
+    { id: "protecao", rotulo: "Proteção", curto: "Hedge", ico: "⛨" },
     { id: "relatorio", rotulo: "Relatório", curto: "Relat.", ico: "▤" },
     { id: "historico", rotulo: "Histórico", curto: "Hist.", ico: "↻" },
     { id: "comparar", rotulo: "Comparar", ico: "⚖" },
@@ -203,6 +208,26 @@ export function App() {
             membro={membro}
             carteiraId={carteiraId}
             onDone={dados.recarregar}
+            // A key remonta o Trade quando chega uma ordem nova da calculadora.
+            key={ordemSugerida ? JSON.stringify(ordemSugerida) : "trade"}
+            ordemSugerida={ordemSugerida}
+          />
+        )}
+        {aba === "protecao" && (
+          <Protecao
+            config={config}
+            snapshot={snapshot}
+            transacoes={transacoes}
+            ativos={dados.ativos}
+            precos={precos}
+            onOperar={
+              podeOperar && carteiraId
+                ? (ordem) => {
+                    setOrdemSugerida(ordem);
+                    setAba("operar");
+                  }
+                : undefined
+            }
           />
         )}
         {aba === "posicoes" && <Positions snapshot={snapshot} />}
@@ -226,7 +251,11 @@ export function App() {
     <Shell
       itens={itens}
       ativo={aba}
-      onNavegar={setAba}
+      onNavegar={(id) => {
+        // Navegar à mão descarta a ordem pré-montada: Operar volta ao normal.
+        setOrdemSugerida(null);
+        setAba(id);
+      }}
       escopo={escopo}
       onTrocarEscopo={trocarEscopo}
       carteiraAtivada={ativada}

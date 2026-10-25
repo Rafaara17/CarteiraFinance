@@ -1,0 +1,139 @@
+{
+ "BizSts": {
+  "cd": "OK"
+ },
+ "Msg": {
+  "dtTm": "2026-10-25 15:03:59"
+ },
+ "Scty": [
+  {
+   "SctyQtn": {
+    "bottomLmtPric": 194335,
+    "prvsDayAdjstmntPric": 216693,
+    "topLmtPric": 237515,
+    "opngPric": 215685,
+    "minPric": 215685,
+    "maxPric": 217500,
+    "avrgPric": 216741.2,
+    "curPrc": 216415
+   },
+   "asset": {
+    "AsstSummry": {
+     "grssAmt": 173393.0,
+     "mtrtyCode": "2027-04-14",
+     "opnCtrcts": 410,
+     "tradQty": 4,
+     "traddCtrctsQty": 4
+    },
+    "code": "WIN"
+   },
+   "buyOffer": {
+    "price": 215700
+   },
+   "mkt": {
+    "cd": "FUT"
+   },
+   "sellOffer": {
+    "price": 217650
+   },
+   "symb": "WINJ27",
+   "desc": "IBOVESPA MINI"
+  },
+  {
+   "SctyQtn": {
+    "bottomLmtPric": 235285,
+    "prvsDayAdjstmntPric": 262291,
+    "topLmtPric": 287565
+   },
+   "asset": {
+    "AsstSummry": {
+     "mtrtyCode": "2028-12-13"
+    },
+    "code": "WIN"
+   },
+   "mkt": {
+    "cd": "FUT"
+   },
+   "symb": "WINZ28",
+   "desc": "IBOVESPA MINI"
+  },
+  {
+   "SctyQtn": {
+    "bottomLmtPric": 231360,
+    "prvsDayAdjstmntPric": 257920,
+    "topLmtPric": 282770
+   },
+   "asset": {
+    "AsstSummry": {
+     "mtrtyCode": "2028-10-18"
+    },
+    "code": "WIN"
+   },
+   "mkt": {
+    "cd": "FUT"
+   },
+   "symb": "WINV28",
+   "desc": "IBOVESPA MINI"
+  },
+  {
+   "SctyQtn": {
+    "bottomLmtPric": 206090,
+    "prvsDayAdjstmntPric": 229779,
+    "topLmtPric": 251885
+   },
+   "asset": {
+    "AsstSummry": {
+     "mtrtyCode": "2027-10-13"
+    },
+    "code": "WIN"
+   },
+   "mkt": {
+    "cd": "FUT"
+   },
+   "symb": "WINV27",
+   "desc": "IBOVESPA MINI"
+  },
+  {
+   "SctyQtn": {
+    "bottomLmtPric": 198345,
+    "prvsDayAdjstmntPric": 221158,
+    "topLmtPric": 242420
+   },
+   "asset": {
+    "AsstSummry": {
+     "mtrtyCode": "2027-06-16"
+    },
+    "code": "WIN"
+   },
+   "buyOffer": {
+    "price": 218745
+   },
+   "mkt": {
+    "cd": "FUT"
+   },
+   "sellOffer": {
+    "price": 222950
+   },
+   "symb": "WINM27",
+   "desc": "IBOVESPA MINI"
+  },
+  {
+   "SctyQtn": {
+    "bottomLmtPric": 218150,
+    "prvsDayAdjstmntPric": 243227,
+    "topLmtPric": 266620
+   },
+   "asset": {
+    "AsstSummry": {
+     "mtrtyCode": "2028-04-12"
+    },
+    "code": "WIN"
+   },
+   "mkt": {
+    "cd": "FUT"
+   },
+   "symb": "WINJ28",
+   "desc": "IBOVESPA MINI"
+  }
+ ]
+}

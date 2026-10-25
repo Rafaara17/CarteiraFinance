@@ -1,0 +1,43 @@
+name: Ajustes B3 (futuros)
+
+# Grava o preço de AJUSTE oficial dos futuros que o app negocia (dólar, boi,
+# milho, café, soja, etanol) na tabela b3_ajustes, e no histórico do dia.
+#
+# Roda 1x/dia útil, depois do fechamento: a B3 publica o ajuste uma vez por
+# pregão. NÃO PRECISA DE TOKEN — a fonte é o arquivo público "Pesquisa por pregão".
+#
+# É "melhor esforço": se a B3 não entregar o arquivo, o job avisa e termina verde.
+# O app continua no preço teórico, e o admin pode registrar o ajuste à mão.
+#
+# Para popular agora (primeira vez, ou depois de rodar a migração): "Run workflow".
+on:
+  # Dias úteis, 23:00 UTC (~20h BRT) — o boletim do dia já está publicado.
+  schedule:
+    - cron: "0 23 * * 1-5"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ajustes-b3
+  cancel-in-progress: true
+
+jobs:
+  ajustes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Baixar ajustes da B3 e gravar no Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npm run fetch-ajustes

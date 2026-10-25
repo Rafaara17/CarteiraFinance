@@ -1,4 +1,5 @@
 import { marcarBond } from "./bonds";
+import { estaVencido, mapaDerivativos, margemPosicao, precoDerivativo } from "./derivativos";
 import { cambioParaBRL } from "./fx";
 import { replay, type PosicaoBase } from "./ledger";
 import type {
@@ -31,13 +32,18 @@ export function computarPortfolio(
   precos: PrecosSnapshot,
   hoje: Date = new Date(),
 ): PortfolioSnapshot {
-  const estado = replay(config, transacoes);
+  const estado = replay(config, transacoes, mapaDerivativos(ativos));
   const mapaAtivos = new Map(ativos.map((a) => [a.ticker, a]));
 
   const posicoes: Posicao[] = [];
   for (const base of estado.posicoes.values()) {
+    const ativo = mapaAtivos.get(base.ticker);
+    if (ativo?.derivativo) {
+      if (Math.abs(base.qtd) > 1e-9) posicoes.push(marcarDerivativo(base, ativo, precos, hoje));
+      continue;
+    }
     if (base.qtd <= 0) continue;
-    posicoes.push(marcarPosicao(base, mapaAtivos.get(base.ticker), precos, hoje));
+    posicoes.push(marcarPosicao(base, ativo, precos, hoje));
   }
 
   const valorInvestidoBRL = posicoes.reduce((s, p) => s + (p.valorBRL ?? 0), 0);
@@ -46,11 +52,17 @@ export function computarPortfolio(
   const variacaoDiaBRL = posicoes.reduce((s, p) => s + (p.variacaoDiaBRL ?? 0), 0);
   const patrimonioOntem = patrimonioBRL - variacaoDiaBRL;
 
-  // pesos (% do patrimônio)
+  const margemRequeridaBRL = posicoes.reduce((s, p) => s + (p.derivativo?.margemBRL ?? 0), 0);
+
+  // pesos (% do patrimônio). Futuro não tem "peso": o valor dele é P&L (pode ser
+  // negativo) — a exposição real está em derivativo.nocionalBRL.
   for (const p of posicoes) {
-    p.pesoPct = patrimonioBRL > 0 && p.valorBRL != null ? (p.valorBRL / patrimonioBRL) * 100 : null;
+    p.pesoPct =
+      !p.derivativo && patrimonioBRL > 0 && p.valorBRL != null ? (p.valorBRL / patrimonioBRL) * 100 : null;
   }
   posicoes.sort((a, b) => (b.valorBRL ?? 0) - (a.valorBRL ?? 0));
+  // As pizzas de alocação só fazem sentido com valores positivos.
+  const alocaveis = posicoes.filter((p) => !p.derivativo);
 
   return {
     caixaBRL: estado.caixaBRL,
@@ -68,9 +80,11 @@ export function computarPortfolio(
     variacaoDiaPct: patrimonioOntem > 0 ? (variacaoDiaBRL / patrimonioOntem) * 100 : null,
     posicoesSemPreco: posicoes.filter((p) => p.marcacao === "custo").length,
     cambioUSD: cambioParaBRL(precos, "USD"),
-    alocacaoPorClasse: alocacao(posicoes, patrimonioBRL, (p) => p.classe),
-    alocacaoPorBolsa: alocacao(posicoes, patrimonioBRL, (p) => p.bolsa),
-    alocacaoPorMoeda: alocacao(posicoes, patrimonioBRL, (p) => p.moeda),
+    alocacaoPorClasse: alocacao(alocaveis, patrimonioBRL, (p) => p.classe),
+    alocacaoPorBolsa: alocacao(alocaveis, patrimonioBRL, (p) => p.bolsa),
+    alocacaoPorMoeda: alocacao(alocaveis, patrimonioBRL, (p) => p.moeda),
+    margemRequeridaBRL,
+    caixaLivreBRL: estado.caixaBRL - margemRequeridaBRL,
   };
 }
 
@@ -147,6 +161,56 @@ function marcarPosicao(
   pos.plNaoRealizadoPct =
     base.custoTotalBRL > 0 ? (pos.plNaoRealizadoBRL / base.custoTotalBRL) * 100 : null;
   return pos;
+}
+
+/**
+ * Futuro (qtd COM SINAL): valor = P&L não realizado
+ * (preço atual − preço médio) × qtd × multiplicador × câmbio. Sem preço, vale
+ * zero (P&L neutro) — o dinheiro não some.
+ */
+function marcarDerivativo(base: PosicaoBase, ativo: Ativo, precos: PrecosSnapshot, hoje: Date): Posicao {
+  const meta = ativo.derivativo!;
+  const qtd = base.qtd;
+  const pm = base.precoMedio ?? 0;
+  const fx = cambioParaBRL(precos, meta.moedaCotacao) ?? 1;
+  const cot = precoDerivativo(base.ticker, meta, precos, hoje);
+  const preco = cot?.preco ?? null;
+  const mult = meta.multiplicador;
+  const ref = preco ?? pm;
+  const valorBRL = preco == null ? 0 : (preco - pm) * qtd * mult * fx;
+  const nocionalBRL = qtd * ref * mult * fx;
+  // Base do % de P&L: o nocional de entrada.
+  const baseRetorno = Math.abs(qtd) * pm * mult * fx;
+  const vencido = estaVencido(meta, hoje);
+
+  return {
+    ticker: base.ticker,
+    nome: ativo.nome,
+    classe: ativo.tipo,
+    bolsa: ativo.bolsa,
+    moeda: meta.moedaCotacao,
+    qtd,
+    custoMedioBRL: 0,
+    custoTotalBRL: 0,
+    precoAtual: preco,
+    fxAtual: fx,
+    valorBRL,
+    plNaoRealizadoBRL: valorBRL,
+    plNaoRealizadoPct: baseRetorno > 0 ? (valorBRL / baseRetorno) * 100 : null,
+    pesoPct: null,
+    precoAnterior: null,
+    variacaoDiaPct: null,
+    variacaoDiaBRL: null,
+    marcacao: cot == null ? "custo" : cot.origem,
+    derivativo: {
+      meta,
+      lado: qtd > 0 ? "comprado" : "vendido",
+      precoMedio: pm,
+      nocionalBRL,
+      margemBRL: vencido ? 0 : margemPosicao(meta, qtd, ref, fx),
+      vencido,
+    },
+  };
 }
 
 function alocacao(

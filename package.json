@@ -13,7 +13,8 @@
     "fetch-prices": "tsx scripts/fetch-prices.ts",
     "fetch-tesouro": "tsx scripts/fetch-tesouro.ts",
     "fetch-dividends": "tsx scripts/fetch-dividends.ts",
-    "fetch-history": "tsx scripts/fetch-history.ts"
+    "fetch-history": "tsx scripts/fetch-history.ts",
+    "fetch-ajustes": "tsx scripts/fetch-ajustes-b3.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

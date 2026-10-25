@@ -161,6 +161,26 @@ Três pontos que valem saber:
   no runner da Action. E a brapi só serve Tesouro no **plano Pro, pago** — além de ela mesma
   espelhar o Tesouro Transparente, que é de graça. Ver o cabeçalho de `src/engine/tesouro.ts`.
 
+### 6. Derivativos, cripto e mesa de risco
+
+1. Rode de novo o `supabase/schema.sql` no SQL Editor (o bloco **DERIVATIVOS**, no fim, é
+   idempotente): cria `assets.derivativo`, os insumos em `prices_latest`, a tabela `b3_ajustes` e a
+   RPC de ajuste manual. **Sem ele não dá para registrar derivativos.**
+2. Republique a Edge Function `cotacoes`: ela passou a servir o juro americano (preço teórico do
+   dólar futuro) e o histórico de cripto.
+3. (Opcional) Rode **Actions → Ajustes B3 (futuros) → Run workflow** para gravar os ajustes do dia.
+
+**De onde vem cada preço** (grátis, nada digitado pelo usuário):
+
+| Instrumento | Fonte |
+|---|---|
+| Futuros (WDO, DOL, WIN, IND, BGI, CCM, ICF, SJC) | API pública de cotações da B3 (`cotacao.b3.com.br`, 15 min de atraso), direto do navegador: último negócio → ajuste do pregão anterior → preço teórico |
+| Cripto (BTC, ETH, SOL, XRP, LTC) | AwesomeAPI, em reais, ao vivo |
+| CDI | Banco Central (SGS 4389) |
+
+A API da B3 e a AwesomeAPI liberam CORS: futuros e cripto funcionam mesmo sem republicar a Edge
+Function.
+
 ---
 
 ## Uso
@@ -179,6 +199,20 @@ Três pontos que valem saber:
     indexador, taxa e PU vêm da fonte (o valor no vencimento não é pedido: a marcação vem do PU
     oficial). Também dá para cadastrar um título genérico, que precisa de vencimento + valor no
     vencimento.
+  - *Futuros* — dólar, Ibovespa e commodities da B3, comprado ou **vendido**, escolhendo o
+    contrato na lista real da B3 (último, ajuste, ofertas, contratos em aberto). Não há desembolso: o app
+    reserva **margem de garantia** (10–15% do nocional) e bloqueia ordens sem caixa livre. O P&L
+    acumula na posição e vira caixa ao zerar.
+  - *Cripto* — Bitcoin, Ethereum e outros à vista, fracionados, em reais (24/7).
+- **Proteção (mesa de risco):** faixa com VaR 95%, Expected Shortfall, volatilidade, beta, exposição
+  ao dólar e uso de margem. Sub-abas:
+  - *Risco* — VaR histórico e paramétrico (95/99%, 1 e 10 dias) com e sem derivativos, distribuição
+    do P&L simulado e contribuição de cada posição ao VaR;
+  - *Stress test* — Crise de 2008, Covid, Joesley Day, choque cambial, commodities, inverno cripto,
+    rali e cenário customizado, posição a posição;
+  - *Hedge* — beta de cada ação contra o Ibovespa e quantos mini-índices zeram o beta, exposição
+    cambial e calculadora de hedge com os contratos reais da B3 (“Montar ordem” abre Operar já
+    preenchido).
 - **Posições:** preço médio, preço atual, variação do dia, P&L e peso com barra. Posições sem
   cotação aparecem marcadas **a custo**; títulos do Tesouro com PU oficial ganham o selo
   **PU oficial**, e renda fixa sem PU público fica **linear**.
@@ -204,6 +238,7 @@ npx supabase functions serve cotacoes
 SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... npm run fetch-prices    # ações e câmbio
 SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... npm run fetch-tesouro   # catálogo e PU do Tesouro
 SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... npm run fetch-history   # BRAPI_TOKEN é opcional
+npm run fetch-ajustes -- --dry-run                                     # ajustes B3, sem gravar
 ```
 
 ## Estrutura

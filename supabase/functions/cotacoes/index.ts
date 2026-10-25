@@ -21,6 +21,8 @@
  * Modos (via querystring ou corpo JSON):
  *   { tickers: ["PETR4","AAPL"] }  -> cotação + fechamento anterior + câmbio, e
  *                                     faz merge em `prices_latest`.
+ *       + taxas: true                 -> também juros (CDI do BCB, T-bill ^IRX) —
+ *                                     insumo do preço teórico do dólar futuro.
  *   { buscar: "PETR" }             -> resolve ticker: símbolo, bolsa, moeda, tipo.
  *   { historico: true }            -> (só admin) semeia `prices_history` com ~2
  *                                     anos de Yahoo + BCB, para os gráficos de
@@ -35,6 +37,8 @@ const UA = "Mozilla/5.0 (CarteiraFinance)";
 const RANGE_HISTORICO = "2y";
 const DIAS_CAMBIO = 400;
 const PARALELISMO = 6;
+/** Juros mudam devagar: rebusca no BCB/Yahoo no máximo a cada 6 h. */
+const VALIDADE_TAXAS_MS = 6 * 3600_000;
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -173,7 +177,11 @@ async function emLotes<T, R>(itens: T[], fn: (x: T) => Promise<R>): Promise<Arra
 // Modo 1: cotações
 // ---------------------------------------------------------------------------
 
-async function modoCotacoes(admin: SupabaseClient, tickers: string[]) {
+interface OpcoesInsumos {
+  taxas?: boolean;
+}
+
+async function modoCotacoes(admin: SupabaseClient, tickers: string[], extras: OpcoesInsumos = {}) {
   const limpos = [...new Set(tickers.map((t) => t.trim().toUpperCase()).filter(Boolean))];
 
   // O símbolo do Yahoo fica cacheado em assets.yahoo_symbol: uma vez resolvido,
@@ -242,15 +250,71 @@ async function modoCotacoes(admin: SupabaseClient, tickers: string[]) {
     }
   }
 
+  const insumos = extras.taxas ? await taxasDeJuros(admin).catch(() => null) : null;
+
   return {
     atualizadoEm: new Date().toISOString(),
     fonte: "yahoo finance (ao vivo)",
     cambio,
     acoes,
     fechamentoAnterior,
+    ...(insumos ?? {}),
     meta,
     falhas,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Juros (insumo do preço teórico do dólar futuro), com cache em prices_latest
+// ---------------------------------------------------------------------------
+
+/**
+ * CDI (BCB) e juro americano (T-bill ^IRX), reaproveitando o que já está gravado
+ * enquanto estiver fresco (`insumos_em`). Assim o repique de minuto em minuto do
+ * app não vira uma chamada ao BCB por minuto.
+ *
+ * Grava via `merge_insumos_derivativos` (só service role). Se a migração ainda
+ * não rodou, a leitura/gravação falha em silêncio e o app usa os padrões.
+ */
+async function taxasDeJuros(admin: SupabaseClient) {
+  const { data: atual } = await admin.from("prices_latest").select("taxas,insumos_em").eq("id", 1).maybeSingle();
+  const taxas: Record<string, number> = { ...((atual as any)?.taxas ?? {}) };
+  const em: Record<string, string> = { ...((atual as any)?.insumos_em ?? {}) };
+  const fresco = (chave: string) => {
+    const t = Date.parse(em[chave] ?? "");
+    return isFinite(t) && Date.now() - t < VALIDADE_TAXAS_MS;
+  };
+  const novasTaxas: Record<string, number> = {};
+  const novosEm: Record<string, string> = {};
+
+  if (!fresco("CDI") || typeof taxas.CDI !== "number") {
+    try {
+      // SGS 4389: CDI anualizado base 252 (% a.a.).
+      const r = await fetch("https://api.bcb.gov.br/dados/serie/bcdata.sgs.4389/dados/ultimos/1?formato=json");
+      const v = Number((await r.json())?.[0]?.valor);
+      if (isFinite(v) && v > 0) {
+        novasTaxas.CDI = v / 100;
+        novosEm.CDI = new Date().toISOString();
+      }
+    } catch { /* mantém o anterior */ }
+  }
+  if (!fresco("USD") || typeof taxas.USD !== "number") {
+    try {
+      // ^IRX: T-bill de 13 semanas, cotado em % a.a.
+      const irx = await cotar("^IRX");
+      if (irx.preco > 0 && irx.preco < 30) {
+        novasTaxas.USD = irx.preco / 100;
+        novosEm.USD = new Date().toISOString();
+      }
+    } catch { /* mantém o anterior */ }
+  }
+
+  if (Object.keys(novosEm).length > 0) {
+    await admin
+      .rpc("merge_insumos_derivativos", { p_taxas: novasTaxas, p_em: novosEm })
+      .then(() => {}, () => {});
+  }
+  return { taxas: { ...taxas, ...novasTaxas } };
 }
 
 // ---------------------------------------------------------------------------
@@ -311,6 +375,8 @@ async function modoHistorico(admin: SupabaseClient) {
   const equities = ((ativos ?? []) as any[]).filter((a) =>
     ["acao", "etf", "fii"].includes(a.tipo)
   );
+  // Cripto: o Yahoo só tem o par em dólar; convertemos pelo câmbio de cada dia.
+  const criptos = ((ativos ?? []) as any[]).filter((a) => a.tipo === "cripto");
 
   const porData = new Map<string, { data: string; acoes: any; cambio: any; indices: any }>();
   const linha = (d: string) => {
@@ -345,6 +411,32 @@ async function modoHistorico(admin: SupabaseClient) {
     }
   } catch { /* segue sem câmbio histórico */ }
 
+  // Cripto em R$ = par em US$ × dólar do dia (forward-fill do câmbio).
+  if (criptos.length > 0) {
+    const datasCambio = [...porData.values()]
+      .filter((l) => typeof l.cambio.USD === "number")
+      .sort((a, b) => a.data.localeCompare(b.data));
+    const dolarEm = (d: string) => {
+      let v: number | undefined;
+      for (const l of datasCambio) {
+        if (l.data > d) break;
+        v = l.cambio.USD;
+      }
+      return v;
+    };
+    const seriesCripto = await emLotes(criptos, async (a: any) => ({
+      ticker: a.ticker,
+      serie: await historicoDiario(`${a.ticker}-USD`),
+    }));
+    for (const s of seriesCripto) {
+      if (!s) continue;
+      for (const [d, usd] of s.serie) {
+        const fx = dolarEm(d);
+        if (fx) linha(d).acoes[s.ticker] = usd * fx;
+      }
+    }
+  }
+
   // Índices de mercado (Yahoo) — a âncora do CDI/IPCA é o dia mais antigo que
   // temos, para o nível acumulado ser reproduzível entre execuções.
   const datas = [...porData.keys()].sort();
@@ -369,6 +461,12 @@ async function modoHistorico(admin: SupabaseClient) {
 
   const linhas = [...porData.values()].sort((a, b) => a.data.localeCompare(b.data));
   if (linhas.length === 0) return { dias: 0 };
+
+  // O upsert reescreve `acoes` inteiro: preserva o que já está gravado (ajustes
+  // dos futuros da B3, gravados sob o código do contrato).
+  const { data: antigas } = await admin.from("prices_history").select("data,acoes").gte("data", linhas[0].data);
+  const porDia = new Map<string, any>(((antigas ?? []) as any[]).map((r) => [r.data, r.acoes ?? {}]));
+  for (const l of linhas) l.acoes = { ...(porDia.get(l.data) ?? {}), ...l.acoes };
 
   // Upsert nunca apaga: a série cresce para sempre.
   const { error } = await admin.from("prices_history").upsert(linhas, { onConflict: "data" });
@@ -449,9 +547,10 @@ Deno.serve(async (req: Request) => {
 
     if (buscar) return json(await modoBuscar(String(buscar)));
 
+
     if (tickersRaw) {
       const lista = Array.isArray(tickersRaw) ? tickersRaw : String(tickersRaw).split(",");
-      return json(await modoCotacoes(admin, lista));
+      return json(await modoCotacoes(admin, lista, { taxas: Boolean(corpo.taxas) }));
     }
 
     return json({ erro: "informe `tickers`, `buscar` ou `historico`" }, 400);

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { computarPortfolio } from "../engine/portfolio";
 import type { Ativo, Config, PortfolioSnapshot, PrecosSnapshot, Transacao } from "../engine/types";
-import { buscarCotacoes, mesclarPrecos, type CotacoesVivas } from "../data/cotacoes";
+import { buscarCotacoes, mesclarPrecos, type CotacoesVivas, type OpcoesCotacao } from "../data/cotacoes";
+import { FUTUROS, type CodigoMercadoria } from "../engine/derivativos";
+import { mesclarDiretos, precosDiretos, type PrecosDiretos } from "../data/mercadoB3";
 import {
   assinarRealtime,
   atualizarPapel,
@@ -72,6 +74,8 @@ const SEM_CARTEIRAS = new Map<string, Transacao[]>();
 export function useLeagueData(userId: string | null): DadosLiga {
   const [dados, setDados] = useState<DadosCarregados | null>(null);
   const [vivas, setVivas] = useState<CotacoesVivas | null>(null);
+  /** Futuros, Ibovespa, cripto e CDI — buscados direto das fontes (CORS). */
+  const [diretos, setDiretos] = useState<PrecosDiretos | null>(null);
   const [gatewayOk, setGatewayOk] = useState(true);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -105,9 +109,11 @@ export function useLeagueData(userId: string | null): DadosLiga {
         setDados(d);
 
         // Cotação ao vivo dos ativos em carteira, por cima do snapshot do banco.
-        const tickers = d.ativos.filter((a) => ehRendaVariavel(a)).map((a) => a.ticker);
-        const cot = await buscarCotacoes(tickers);
+        const { tickers, opcoes } = pedidoDeCotacao(d.ativos);
+        // As duas fontes em paralelo; uma fora do ar não segura a outra.
+        const [cot, dir] = await Promise.all([buscarCotacoes(tickers, opcoes), precosDiretos(d.ativos)]);
         if (cancelado) return;
+        setDiretos(dir);
         if (cot) setVivas(cot);
         setGatewayOk(cot != null || tickers.length === 0);
       } catch (e) {
@@ -124,21 +130,28 @@ export function useLeagueData(userId: string | null): DadosLiga {
 
   // Repique da cotação ao vivo enquanto a aba está visível (não gasta chamada
   // com a aba em segundo plano).
-  const tickers = useMemo(
-    () => (dados?.ativos ?? []).filter(ehRendaVariavel).map((a) => a.ticker),
-    [dados],
-  );
-  const tickersChave = tickers.join(",");
+  const pedido = useMemo(() => pedidoDeCotacao(dados?.ativos ?? []), [dados]);
+  const tickers = pedido.tickers;
+  const tickersChave = JSON.stringify(pedido);
   useEffect(() => {
-    if (!logado || tickers.length === 0) return;
+    const ativos = dados?.ativos ?? [];
+    const temDiretos = ativos.some((a) => a.tipo === "cripto" || a.derivativo);
+    if (!logado || (tickers.length === 0 && !temDiretos)) return;
     let cancelado = false;
     const id = setInterval(() => {
       if (document.visibilityState !== "visible") return;
-      void buscarCotacoes(tickers).then((cot) => {
-        if (cancelado) return;
-        if (cot) setVivas(cot);
-        setGatewayOk(cot != null);
-      });
+      if (tickers.length > 0) {
+        void buscarCotacoes(tickers, pedido.opcoes).then((cot) => {
+          if (cancelado) return;
+          if (cot) setVivas(cot);
+          setGatewayOk(cot != null);
+        });
+      }
+      if (temDiretos) {
+        void precosDiretos(ativos).then((dir) => {
+          if (!cancelado) setDiretos(dir);
+        });
+      }
     }, INTERVALO_COTACAO_MS);
     return () => {
       cancelado = true;
@@ -216,7 +229,7 @@ export function useLeagueData(userId: string | null): DadosLiga {
     }
 
     const { config, ativos, precos: doBanco, wallets, membros, transacoesPorCarteira } = dados;
-    const precos = mesclarPrecos(doBanco, vivas);
+    const precos = mesclarDiretos(mesclarPrecos(doBanco, vivas), diretos);
 
     const eu = membros.find((m) => m.userId === userId);
     const meuPapel: Papel = (eu?.papel ?? "membro") as Papel;
@@ -252,9 +265,29 @@ export function useLeagueData(userId: string | null): DadosLiga {
       transacoesPorCarteira,
       precosDesatualizados: !gatewayOk,
     };
-  }, [dados, vivas, gatewayOk, userId, carregando, erro, recarregar, atualizarPapelMembro, definirNome]);
+  }, [dados, vivas, diretos, gatewayOk, userId, carregando, erro, recarregar, atualizarPapelMembro, definirNome]);
 }
 
 function ehRendaVariavel(a: Ativo): boolean {
   return a.tipo === "acao" || a.tipo === "etf" || a.tipo === "fii";
+}
+
+/**
+ * O que cotar ao vivo pela Edge Function. Futuros não vão para o Yahoo (não
+ * existem lá; vêm direto da B3); vão os insumos deles: a referência
+ * internacional do café/soja e os juros. Sem futuro no registro, o pedido é o
+ * de sempre.
+ */
+function pedidoDeCotacao(ativos: Ativo[]): { tickers: string[]; opcoes: OpcoesCotacao } {
+  const tickers = new Set(ativos.filter(ehRendaVariavel).map((a) => a.ticker));
+  let temFuturo = false;
+  for (const a of ativos) {
+    const d = a.derivativo;
+    if (!d) continue;
+    temFuturo = true;
+    // Dólar e Ibovespa vêm de fontes diretas; café/soja precisam do Yahoo.
+    const ref = FUTUROS[d.mercadoria as CodigoMercadoria]?.referencia;
+    if (ref && ref !== "USD" && ref !== "^BVSP") tickers.add(ref);
+  }
+  return { tickers: [...tickers].sort(), opcoes: temFuturo ? { taxas: true } : {} };
 }

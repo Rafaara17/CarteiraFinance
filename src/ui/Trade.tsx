@@ -6,6 +6,9 @@ import { carregarTitulosTesouro, registrarTransacao, upsertAtivo } from "../data
 import { classificarAtivo, cotacaoDolarOuSnapshot, precoDeMercado } from "../data/precoProvider";
 import type { AtivoClassificado } from "../data/precoProvider";
 import { CatalogoTesouro } from "./CatalogoTesouro";
+import { OperarCripto } from "./Cripto";
+import { OperarFuturo, type OrdemSugerida } from "./Derivativos";
+import { CRIPTOS } from "../data/mercadoB3";
 import { fmtDataLonga } from "./grafico";
 
 interface Props {
@@ -17,7 +20,7 @@ interface Props {
   onDone: () => void;
 }
 
-type Sub = "acoes" | "vender" | "rendafixa";
+type Sub = "acoes" | "vender" | "rendafixa" | "cripto" | "futuros";
 
 const ROTULO_CLASSE: Record<ClasseAtivo, string> = {
   acao: "Ação",
@@ -25,10 +28,14 @@ const ROTULO_CLASSE: Record<ClasseAtivo, string> = {
   fii: "FII",
   tesouro: "Tesouro",
   bond: "Título",
+  futuro: "Futuro",
+  cripto: "Cripto",
 };
 
-export function Trade(props: Props) {
-  const [sub, setSub] = useState<Sub>("acoes");
+export function Trade(props: Props & { ordemSugerida?: OrdemSugerida | null }) {
+  const { ordemSugerida, ...base } = props;
+  const [sub, setSub] = useState<Sub>(ordemSugerida ? "futuros" : "acoes");
+  const temMargem = props.snapshot.margemRequeridaBRL > 0;
   return (
     <div className="grid">
       <div className="row no-print">
@@ -36,15 +43,30 @@ export function Trade(props: Props) {
           <button className={sub === "acoes" ? "ativo" : ""} onClick={() => setSub("acoes")}>Comprar</button>
           <button className={sub === "vender" ? "ativo" : ""} onClick={() => setSub("vender")}>Vender</button>
           <button className={sub === "rendafixa" ? "ativo" : ""} onClick={() => setSub("rendafixa")}>Renda fixa</button>
+          <button className={sub === "cripto" ? "ativo" : ""} onClick={() => setSub("cripto")}>Cripto</button>
+          <button className={sub === "futuros" ? "ativo" : ""} onClick={() => setSub("futuros")}>Futuros</button>
         </div>
         <div className="spacer" />
         <span className="muted" style={{ fontSize: "0.85rem" }}>
           Caixa disponível: <strong className="num">{fmtBRL(props.snapshot.caixaBRL)}</strong>
+          {temMargem && (
+            <>
+              {" "}· livre (após margem): <strong className={`num ${props.snapshot.caixaLivreBRL < 0 ? "neg" : ""}`}>{fmtBRL(props.snapshot.caixaLivreBRL)}</strong>
+            </>
+          )}
         </span>
       </div>
-      {sub === "acoes" && <ComprarAcao {...props} />}
-      {sub === "rendafixa" && <RendaFixa {...props} />}
-      {sub === "vender" && <Vender {...props} />}
+      {props.snapshot.caixaBRL < 0 && (
+        <div className="alerta">
+          Caixa negativo: as perdas em derivativos superaram o dinheiro disponível. Numa corretora isto seria uma
+          chamada de margem — reduza posições para recompor o caixa.
+        </div>
+      )}
+      {sub === "acoes" && <ComprarAcao {...base} />}
+      {sub === "rendafixa" && <RendaFixa {...base} />}
+      {sub === "vender" && <Vender {...base} />}
+      {sub === "futuros" && <OperarFuturo {...base} ordemInicial={ordemSugerida} />}
+      {sub === "cripto" && <OperarCripto {...base} />}
     </div>
   );
 }
@@ -123,7 +145,7 @@ function ComprarAcao({ snapshot, membro, precos, carteiraId, onDone }: Props) {
   const q = Number(qtd);
   const p = det?.precoRef ?? Number(preco);
   const custoEstimado = isFinite(q) && isFinite(p) && q > 0 && p > 0 ? q * p * fxEstimado : null;
-  const caixaRestante = custoEstimado == null ? null : snapshot.caixaBRL - custoEstimado;
+  const caixaRestante = custoEstimado == null ? null : snapshot.caixaLivreBRL - custoEstimado;
   const semCaixa = caixaRestante != null && caixaRestante < 0;
 
   async function comprar() {
@@ -147,10 +169,10 @@ function ComprarAcao({ snapshot, membro, precos, carteiraId, onDone }: Props) {
       const tk = info.ticker || digitado;
       const fx = info.moeda === "BRL" ? 1 : await cotacaoDolarOuSnapshot(precos);
       const custoBRL = q * p * fx;
-      if (custoBRL > snapshot.caixaBRL + 1e-6) {
+      if (custoBRL > snapshot.caixaLivreBRL + 1e-6) {
         setMsg({
           tipo: "erro",
-          texto: `Caixa insuficiente: a compra custa ${fmtBRL(custoBRL)} e há ${fmtBRL(snapshot.caixaBRL)} disponíveis.`,
+          texto: `Caixa insuficiente: a compra custa ${fmtBRL(custoBRL)} e há ${fmtBRL(snapshot.caixaLivreBRL)} livres (descontada a margem dos derivativos).`,
         });
         return;
       }
@@ -239,6 +261,12 @@ function ComprarAcao({ snapshot, membro, precos, carteiraId, onDone }: Props) {
         </div>
       </div>
 
+      {CRIPTOS.some((c) => c.simbolo === ticker.trim().toUpperCase()) && (
+        <p className="alerta" style={{ marginTop: 0 }}>
+          {ticker.trim().toUpperCase()} é um criptoativo — compre pela aba <strong>Cripto</strong>, cotada em reais 24/7.
+        </p>
+      )}
+
       <div className="aviso" style={{ marginBottom: "0.9rem" }}>
         {detectando ? (
           "Consultando a bolsa…"
@@ -315,7 +343,9 @@ function ComprarAcao({ snapshot, membro, precos, carteiraId, onDone }: Props) {
 // ---------------------------------------------------------------------------
 
 function Vender({ snapshot, precos, membro, carteiraId, onDone }: Props) {
-  const posicoes = snapshot.posicoes.filter((p) => p.qtd > 0);
+  // Futuros e cripto se operam nas próprias abas (futuro pode estar vendido;
+  // cripto é cotado por outra fonte, que o Yahoo não cobre em reais).
+  const posicoes = snapshot.posicoes.filter((p) => p.qtd > 0 && !p.derivativo && p.classe !== "cripto");
   const [ticker, setTicker] = useState(posicoes[0]?.ticker ?? "");
   const [qtd, setQtd] = useState("");
   const [preco, setPreco] = useState("");
@@ -614,8 +644,8 @@ function RendaFixa({ snapshot, membro, carteiraId, onDone }: Props) {
       setMsg({ tipo: "erro", texto: "Informe o valor no vencimento (base da marcação linear)." });
       return;
     }
-    if (q * pu > snapshot.caixaBRL + 1e-6) {
-      setMsg({ tipo: "erro", texto: `Caixa insuficiente: custo ${fmtBRL(q * pu)} > caixa ${fmtBRL(snapshot.caixaBRL)}.` });
+    if (q * pu > snapshot.caixaLivreBRL + 1e-6) {
+      setMsg({ tipo: "erro", texto: `Caixa insuficiente: custo ${fmtBRL(q * pu)} > caixa livre ${fmtBRL(snapshot.caixaLivreBRL)}.` });
       return;
     }
     setOcupado(true);

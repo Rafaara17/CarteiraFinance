@@ -8,7 +8,8 @@
 // dia (forward-fill do último valor conhecido). A soma é o patrimônio do dia.
 
 import { marcarBond } from "./bonds";
-import { replay } from "./ledger";
+import { lerCodigoFuturo, mapaDerivativos, precoDerivativo } from "./derivativos";
+import { replay, type PosicaoBase } from "./ledger";
 import type {
   Ativo,
   Config,
@@ -99,6 +100,7 @@ export function computarEvolucao(
 ): Evolucao {
   const { de, ate } = intervalo;
   const mapaAtivos = new Map(ativos.map((a) => [a.ticker, a]));
+  const derivativos = mapaDerivativos(ativos);
   const hist = [...historico].sort((a, b) => a.data.localeCompare(b.data));
 
   // Forward-fill: mantém o último valor conhecido de cada preço/câmbio/índice.
@@ -119,7 +121,7 @@ export function computarEvolucao(
 
     if (pt.data < de || pt.data > ate) continue; // fora do período (mas já atualizou o fill)
 
-    const estado = estadoNaData(config, transacoes, pt.data);
+    const estado = estadoNaData(config, transacoes, pt.data, derivativos);
     const patrimonio = estado.caixaBRL + valorPosicoesBRL(estado.posicoes, mapaAtivos, ultAcoes, ultCambio, pt.data);
     pontos.push({ data: pt.data, patrimonio, niveis: { ...ultIndice } });
   }
@@ -232,15 +234,20 @@ export function comPontoDeHoje(ev: Evolucao, patrimonioAtual: number, hoje: Date
 }
 
 /** Estado (caixa + posições) do ledger considerando só transações até o fim do dia `dataYMD`. */
-function estadoNaData(config: Config, transacoes: Transacao[], dataYMD: string) {
+function estadoNaData(
+  config: Config,
+  transacoes: Transacao[],
+  dataYMD: string,
+  derivativos: ReturnType<typeof mapaDerivativos>,
+) {
   const limite = Date.parse(`${dataYMD}T23:59:59.999Z`);
   const ate = transacoes.filter((t) => Date.parse(t.ts) <= limite);
-  return replay(config, ate);
+  return replay(config, ate, derivativos);
 }
 
 /** Valor de mercado (BRL) das posições num dia, com preços/câmbio forward-filled. */
 function valorPosicoesBRL(
-  posicoes: Map<string, { ticker: string; qtd: number; custoTotalBRL: number }>,
+  posicoes: Map<string, PosicaoBase>,
   mapaAtivos: Map<string, Ativo>,
   ultAcoes: Record<string, number>,
   ultCambio: Record<string, number>,
@@ -250,8 +257,12 @@ function valorPosicoesBRL(
   let total = 0;
 
   for (const base of posicoes.values()) {
-    if (base.qtd <= 0) continue;
     const ativo = mapaAtivos.get(base.ticker);
+    if (ativo?.derivativo) {
+      total += valorDerivativoNoDia(base, ativo.derivativo, ultAcoes, ultCambio, dataDate);
+      continue;
+    }
+    if (base.qtd <= 0) continue;
     const classe = ativo?.tipo ?? "acao";
     const moeda = ativo?.moeda ?? "BRL";
 
@@ -273,6 +284,31 @@ function valorPosicoesBRL(
     }
   }
   return total;
+}
+
+/**
+ * Futuro num dia passado: ajuste gravado em prices_history (pela Action de
+ * ajustes, sob o próprio código) ou, sem ele, o teórico daquele dia. Sem preço,
+ * vale 0 (P&L neutro).
+ */
+function valorDerivativoNoDia(
+  base: PosicaoBase,
+  meta: NonNullable<Ativo["derivativo"]>,
+  ultAcoes: Record<string, number>,
+  ultCambio: Record<string, number>,
+  dataDate: Date,
+): number {
+  if (Math.abs(base.qtd) <= 1e-9) return 0;
+  const ajustes: PrecosSnapshot["ajustes"] = {};
+  const aj = ultAcoes[base.ticker];
+  if (lerCodigoFuturo(base.ticker) && typeof aj === "number" && aj > 0) {
+    ajustes[base.ticker] = { ajuste: aj, data: ymd(dataDate) };
+  }
+  const precos: PrecosSnapshot = { ...precosVazios(ultCambio), acoes: ultAcoes, ajustes };
+  const cot = precoDerivativo(base.ticker, meta, precos, dataDate);
+  const fx = meta.moedaCotacao === "BRL" ? 1 : ultCambio[meta.moedaCotacao] ?? 1;
+  if (!cot) return 0;
+  return (cot.preco - (base.precoMedio ?? cot.preco)) * base.qtd * meta.multiplicador * fx;
 }
 
 /** PrecosSnapshot mínimo para `marcarBond` (sem PU de tesouro => crescimento linear). */

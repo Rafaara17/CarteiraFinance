@@ -1,5 +1,16 @@
-import { useState } from "react";
-import { reiniciarCarteirasPessoais, type Membro, type Papel, type Wallet } from "../data/supabaseClient";
+import { useEffect, useState } from "react";
+import {
+  carregarAjustesB3,
+  registrarAjusteB3,
+  reiniciarCarteirasPessoais,
+  type LinhaAjusteB3,
+  type Membro,
+  type Papel,
+  type Wallet,
+} from "../data/supabaseClient";
+import { FUTUROS, MERCADORIAS, proximosVencimentos, type CodigoMercadoria } from "../engine/derivativos";
+import { fmtNum } from "../engine/report";
+import { fmtDataLonga } from "./grafico";
 import { semearHistorico } from "../data/cotacoes";
 import { invalidarHistorico } from "./useHistorico";
 
@@ -131,6 +142,7 @@ export function Admin({ membros, wallets, meuUserId, atualizarPapelMembro, recar
       </div>
 
       <SerieHistorica />
+      <AjustesB3 recarregar={recarregar} />
 
       <ReiniciarCarteiras membros={membros} wallets={wallets} recarregar={recarregar} />
 
@@ -353,6 +365,123 @@ function SerieHistorica() {
       {msg && (
         <p className={msg.tipo === "erro" ? "alerta" : "aviso"} style={{ marginBottom: 0, marginTop: "0.9rem" }}>
           {msg.texto}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Ajuste manual dos futuros. A Action "Ajustes B3" tenta baixar o boletim oficial
+ * todo dia, mas a B3 às vezes bloqueia download automático. Boi, milho e etanol
+ * não têm outra fonte grátis — sem ajuste, não dá para negociá-los. Aqui o admin
+ * copia o ajuste do site da B3 (Market data → Ajustes do pregão).
+ */
+function AjustesB3({ recarregar }: { recarregar: () => void }) {
+  const hojeYMD = new Date().toISOString().slice(0, 10);
+  const [lista, setLista] = useState<LinhaAjusteB3[] | null>(null);
+  const [mercadoria, setMercadoria] = useState<CodigoMercadoria>("BGI");
+  const vencs = proximosVencimentos(mercadoria, new Date(), 6);
+  const [codigo, setCodigo] = useState("");
+  const [ajuste, setAjuste] = useState("");
+  const [data, setData] = useState(hojeYMD);
+  const [ocupado, setOcupado] = useState(false);
+  const [msg, setMsg] = useState<{ tipo: "ok" | "erro"; texto: string } | null>(null);
+  const venc = vencs.find((v) => v.codigo === codigo) ?? vencs[0];
+
+  async function carregar() {
+    setLista(await carregarAjustesB3());
+  }
+  useEffect(() => {
+    void carregar();
+  }, []);
+
+  async function salvar() {
+    setMsg(null);
+    // "5.512,50" (pt-BR) ou "5512.50": com vírgula, o ponto é separador de milhar.
+    const t = ajuste.trim();
+    const v = Number(t.includes(",") ? t.replace(/\./g, "").replace(",", ".") : t);
+    if (!venc || !isFinite(v) || v <= 0) {
+      setMsg({ tipo: "erro", texto: "Informe um ajuste válido." });
+      return;
+    }
+    setOcupado(true);
+    try {
+      await registrarAjusteB3(venc.codigo, v, data, venc.vencimento);
+      setMsg({ tipo: "ok", texto: `Ajuste de ${venc.codigo} registrado: ${fmtNum(v, FUTUROS[mercadoria].casas)}.` });
+      setAjuste("");
+      await carregar();
+      recarregar();
+    } catch (e) {
+      setMsg({ tipo: "erro", texto: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <div className="card__cab">
+        <h3>Ajustes dos futuros (B3)</h3>
+        <span className="muted">preço oficial do pregão — automático pela Action, ou manual aqui</span>
+      </div>
+      <div className="row" style={{ alignItems: "flex-end" }}>
+        <div className="campo" style={{ flex: "2 1 180px" }}>
+          <label htmlFor="am">Mercadoria</label>
+          <select id="am" value={mercadoria} onChange={(e) => { setMercadoria(e.target.value as CodigoMercadoria); setCodigo(""); }}>
+            {MERCADORIAS.map((m) => (
+              <option key={m} value={m}>{m} — {FUTUROS[m].nome}</option>
+            ))}
+          </select>
+        </div>
+        <div className="campo" style={{ flex: "1 1 160px" }}>
+          <label htmlFor="av">Vencimento</label>
+          <select id="av" value={venc?.codigo ?? ""} onChange={(e) => setCodigo(e.target.value)}>
+            {vencs.map((v) => (
+              <option key={v.codigo} value={v.codigo}>{v.codigo} — {fmtDataLonga(v.vencimento)}</option>
+            ))}
+          </select>
+        </div>
+        <div className="campo" style={{ flex: "1 1 130px" }}>
+          <label htmlFor="aa">Ajuste ({FUTUROS[mercadoria].unidade})</label>
+          <input id="aa" value={ajuste} onChange={(e) => setAjuste(e.target.value)} inputMode="decimal" placeholder="310,25" />
+        </div>
+        <div className="campo" style={{ flex: "1 1 140px" }}>
+          <label htmlFor="ad">Pregão</label>
+          <input id="ad" type="date" value={data} max={hojeYMD} onChange={(e) => setData(e.target.value)} />
+        </div>
+      </div>
+      <button onClick={salvar} disabled={ocupado}>{ocupado ? "Salvando…" : "Registrar ajuste"}</button>
+      {msg && (
+        <p className={msg.tipo === "erro" ? "alerta" : "aviso"} style={{ marginBottom: 0, marginTop: "0.9rem" }}>
+          {msg.texto}
+        </p>
+      )}
+      {lista && lista.length > 0 && (
+        <div className="tabela-scroll" style={{ marginTop: "1rem" }}>
+          <table>
+            <thead>
+              <tr>
+                <th>Contrato</th>
+                <th className="right">Ajuste</th>
+                <th className="right">Pregão</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lista.map((l) => (
+                <tr key={l.codigo}>
+                  <td>{l.codigo}</td>
+                  <td className="right">{fmtNum(l.ajuste, 2)}</td>
+                  <td className="right">{fmtDataLonga(l.dataPregao)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {lista && lista.length === 0 && (
+        <p className="muted" style={{ marginBottom: 0, marginTop: "0.9rem", fontSize: "0.85rem" }}>
+          Nenhum ajuste gravado ainda. Dólar, café e soja funcionam pelo preço teórico mesmo assim.
         </p>
       )}
     </div>

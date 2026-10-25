@@ -1,4 +1,4 @@
-import type { Config, Transacao } from "./types";
+import type { Config, DerivativoMeta, Transacao, TxTrade } from "./types";
 
 /** Tipos de transação aceitos. Qualquer outro é rejeitado (integridade). */
 const TIPOS_VALIDOS = new Set(["compra", "venda", "provento", "cupom"]);
@@ -45,8 +45,12 @@ function isTransacao(o: unknown): o is Transacao {
 /** Posição básica acumulada durante o replay (antes da marcação a mercado). */
 export interface PosicaoBase {
   ticker: string;
+  /** quantidade; nos derivativos vem COM SINAL (< 0 = vendido). */
   qtd: number;
-  custoTotalBRL: number; // custo total em BRL das unidades ainda em carteira
+  /** custo total em BRL das unidades ainda em carteira (no futuro é zero: não há desembolso). */
+  custoTotalBRL: number;
+  /** só derivativos: preço médio de entrada, na moeda de cotação. */
+  precoMedio?: number;
 }
 
 export interface EstadoReplay {
@@ -65,7 +69,11 @@ const EPS = 1e-9;
  * custo médio corrente; o resultado (receita - custo baixado) vira P&L realizado.
  * Proventos/cupons entram como caixa e contam como resultado realizado.
  */
-export function replay(config: Config, transacoes: Transacao[]): EstadoReplay {
+export function replay(
+  config: Config,
+  transacoes: Transacao[],
+  derivativos: Map<string, DerivativoMeta> = new Map(),
+): EstadoReplay {
   const estado: EstadoReplay = {
     caixaBRL: config.capitalInicial, // gênese fixa — nada no ledger a altera
     posicoes: new Map(),
@@ -74,7 +82,10 @@ export function replay(config: Config, transacoes: Transacao[]): EstadoReplay {
 
   for (const tx of transacoes) {
     const fx = tx.fx || 1;
-    if (tx.tipo === "compra") {
+    const deriv = derivativos.get(tx.ticker);
+    if (deriv && (tx.tipo === "compra" || tx.tipo === "venda")) {
+      operarDerivativo(estado, tx, deriv);
+    } else if (tx.tipo === "compra") {
       const custoBRL = tx.qtd * tx.preco * fx + (tx.taxa ?? 0);
       const pos = pegar(estado.posicoes, tx.ticker);
       pos.qtd += tx.qtd;
@@ -102,6 +113,48 @@ export function replay(config: Config, transacoes: Transacao[]): EstadoReplay {
   }
 
   return estado;
+}
+
+/**
+ * Futuro: posição COM SINAL. Compra soma, venda subtrai — vender sem ter abre
+ * posição vendida, e uma ordem maior que a posição inverte o lado.
+ *
+ * Abrir não mexe no caixa (só exige margem, calculada no portfolio). Reduzir
+ * realiza (saída − entrada) × qtd × multiplicador × câmbio no caixa.
+ */
+function operarDerivativo(estado: EstadoReplay, tx: TxTrade, meta: DerivativoMeta) {
+  const pos = pegar(estado.posicoes, tx.ticker);
+  const fx = tx.fx || 1;
+  const mult = meta.multiplicador;
+  let restante = (tx.tipo === "compra" ? 1 : -1) * tx.qtd;
+  // A taxa (corretagem) sai do caixa uma vez, na ordem inteira.
+  if (tx.taxa) {
+    estado.caixaBRL -= tx.taxa;
+    estado.plRealizadoBRL -= tx.taxa;
+  }
+
+  // 1) Reduz a posição oposta, se houver.
+  if (Math.abs(pos.qtd) > EPS && Math.sign(pos.qtd) !== Math.sign(restante)) {
+    const fechar = Math.min(Math.abs(restante), Math.abs(pos.qtd));
+    const lado = Math.sign(pos.qtd);
+    const resultado = (tx.preco - (pos.precoMedio ?? tx.preco)) * fechar * lado * mult * fx;
+    estado.caixaBRL += resultado;
+    estado.plRealizadoBRL += resultado;
+    pos.qtd -= fechar * lado;
+    restante += fechar * lado;
+    if (Math.abs(pos.qtd) <= EPS) {
+      pos.qtd = 0;
+      pos.precoMedio = undefined;
+    }
+  }
+
+  // 2) O que sobrou abre/aumenta posição no lado da ordem.
+  if (Math.abs(restante) > EPS) {
+    const antes = Math.abs(pos.qtd);
+    const depois = antes + Math.abs(restante);
+    pos.precoMedio = ((pos.precoMedio ?? 0) * antes + tx.preco * Math.abs(restante)) / depois;
+    pos.qtd += restante;
+  }
 }
 
 function pegar(m: Map<string, PosicaoBase>, ticker: string): PosicaoBase {

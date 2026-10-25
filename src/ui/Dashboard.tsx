@@ -62,7 +62,12 @@ export function Dashboard(props: Props) {
       <Cabecalho snapshot={snapshot} config={config} />
 
       <div className="kpis">
-        <Kpi rotulo="Caixa disponível" valor={fmtBRL(snapshot.caixaBRL)} />
+        <Kpi
+          rotulo="Caixa disponível"
+          valor={fmtBRL(snapshot.caixaBRL)}
+          classe={snapshot.caixaBRL < 0 ? "neg" : undefined}
+          extra={snapshot.margemRequeridaBRL > 0 ? `${fmtBRL(snapshot.caixaLivreBRL)} livres após margem` : undefined}
+        />
         <Kpi rotulo="Investido" valor={fmtBRL(snapshot.valorInvestidoBRL)} extra={`${snapshot.posicoes.length} ${snapshot.posicoes.length === 1 ? "posição" : "posições"}`} />
         <Kpi
           rotulo="P&L não realizado"
@@ -319,7 +324,8 @@ function SemHistorico() {
 // ---------------------------------------------------------------------------
 
 function MaioresPosicoes({ snapshot, onIrPara }: { snapshot: PortfolioSnapshot; onIrPara: (a: string) => void }) {
-  const top = snapshot.posicoes.slice(0, 6);
+  // Derivativos têm leitura própria (aba Posições/Proteção): o "valor" deles é P&L.
+  const top = snapshot.posicoes.filter((p) => !p.derivativo).slice(0, 6);
   return (
     <div className="card">
       <div className="card__cab">

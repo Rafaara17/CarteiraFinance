@@ -6,6 +6,7 @@
 // Atenção: o PostgREST devolve colunas `numeric` como STRING (preserva precisão),
 // então todo campo numérico é normalizado com num()/numOpt() ao mapear.
 import type {
+  AjusteB3,
   Ativo,
   Config,
   HistoricoPrecos,
@@ -74,13 +75,14 @@ const PRECOS_PADRAO: PrecosSnapshot = {
 
 /** Carrega tudo em paralelo e devolve já convertido para os tipos do motor. */
 export async function carregarDados(): Promise<DadosCarregados> {
-  const [cfg, ats, txs, prc, wls, mbs] = await Promise.all([
+  const [cfg, ats, txs, prc, wls, mbs, ajustes] = await Promise.all([
     supabase.from("config").select("*").eq("id", 1).maybeSingle(),
     supabase.from("assets").select("*"),
     supabase.from("transactions").select("*").order("ts", { ascending: true }),
     supabase.from("prices_latest").select("*").eq("id", 1).maybeSingle(),
     supabase.from("wallets").select("*"),
     supabase.from("membros").select("*"),
+    carregarAjustesB3(),
   ]);
 
   if (cfg.error) throw new Error(`config: ${cfg.error.message}`);
@@ -92,7 +94,7 @@ export async function carregarDados(): Promise<DadosCarregados> {
 
   const config = cfg.data ? mapConfig(cfg.data) : CONFIG_PADRAO;
   const ativos = (ats.data ?? []).map(mapAtivo);
-  const precos = prc.data ? mapPrecos(prc.data) : PRECOS_PADRAO;
+  const precos = { ...(prc.data ? mapPrecos(prc.data) : PRECOS_PADRAO), ajustes: ajustesPorCodigo(ajustes) };
   const wallets = (wls.data ?? []).map(mapWallet);
   const membros = (mbs.data ?? []).map(mapMembro);
   const transacoesPorCarteira = agruparTransacoes((txs.data ?? []) as LinhaTransacao[]);
@@ -119,6 +121,9 @@ export async function upsertAtivo(ativo: Ativo): Promise<void> {
     moeda: ativo.moeda,
     nome: ativo.nome,
     bond: ativo.bond ?? null,
+    // Só vai no payload quando existe: assim ações/tesouro continuam funcionando
+    // mesmo num banco que ainda não rodou a migração dos derivativos.
+    ...(ativo.derivativo ? { derivativo: ativo.derivativo } : {}),
   };
   const { error } = await supabase.from("assets").upsert(linha, { onConflict: "ticker" });
   if (error) throw new Error(`Falha ao registrar ativo: ${error.message}`);
@@ -230,6 +235,75 @@ export async function carregarTitulosTesouro(): Promise<TituloTesouro[]> {
   return (data ?? []).map(mapTitulo);
 }
 
+/** Um ajuste da B3 como está na tabela `b3_ajustes`. */
+export interface LinhaAjusteB3 {
+  codigo: string;
+  mercadoria: string;
+  vencimento: string;
+  ajuste: number;
+  ajusteAnterior: number | null;
+  dataPregao: string;
+  spotRef: number | null;
+}
+
+/**
+ * Ajustes oficiais da B3 (tabela `b3_ajustes`), escritos pela Action de ajustes
+ * ou pelo admin. Nunca lança: sem a tabela (migração não rodada) ou com erro,
+ * os futuros simplesmente caem no preço teórico.
+ */
+export async function carregarAjustesB3(): Promise<LinhaAjusteB3[]> {
+  try {
+    const hoje = new Date().toISOString().slice(0, 10);
+    const { data, error } = await supabase
+      .from("b3_ajustes")
+      .select("codigo,mercadoria,vencimento,ajuste,ajuste_anterior,data_pregao,spot_ref")
+      .gte("vencimento", hoje)
+      .order("vencimento", { ascending: true });
+    if (error) throw error;
+    return (data ?? []).map((r) => ({
+      codigo: r.codigo,
+      mercadoria: r.mercadoria,
+      vencimento: r.vencimento,
+      ajuste: num(r.ajuste),
+      ajusteAnterior: numOpt(r.ajuste_anterior) ?? null,
+      dataPregao: r.data_pregao,
+      spotRef: numOpt(r.spot_ref) ?? null,
+    }));
+  } catch (e) {
+    console.warn("Ajustes da B3 indisponíveis:", e instanceof Error ? e.message : e);
+    return [];
+  }
+}
+
+function ajustesPorCodigo(linhas: LinhaAjusteB3[]): Record<string, AjusteB3> {
+  const out: Record<string, AjusteB3> = {};
+  for (const l of linhas) {
+    if (!(l.ajuste > 0)) continue;
+    out[l.codigo] = { ajuste: l.ajuste, data: l.dataPregao, spotRef: l.spotRef ?? undefined };
+  }
+  return out;
+}
+
+/**
+ * Registra (ou corrige) o ajuste de um futuro à mão — só admin; a RPC confere
+ * o papel no banco. É a rede de segurança para quando a Action não conseguir
+ * baixar o arquivo da B3 (boi, milho e etanol só têm preço por aqui).
+ */
+export async function registrarAjusteB3(
+  codigo: string,
+  ajuste: number,
+  dataPregao: string,
+  vencimento: string,
+): Promise<void> {
+  const { error } = await supabase.rpc("registrar_ajuste_b3", {
+    p_codigo: codigo,
+    p_ajuste: ajuste,
+    p_data: dataPregao,
+    p_vencimento: vencimento,
+  });
+  if (error) throw new Error(`Falha ao registrar ajuste: ${error.message}`);
+}
+
 /** Salva um snapshot do relatório (HTML) no banco. */
 export async function salvarRelatorio(html: string, membro: string): Promise<void> {
   const { error } = await supabase.from("reports").insert({ html, membro });
@@ -249,6 +323,7 @@ export function assinarRealtime(onChange: () => void): () => void {
     .on("postgres_changes", { event: "*", schema: "public", table: "prices_latest" }, onChange)
     .on("postgres_changes", { event: "*", schema: "public", table: "wallets" }, onChange)
     .on("postgres_changes", { event: "*", schema: "public", table: "membros" }, onChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "b3_ajustes" }, onChange)
     .subscribe();
   return () => {
     void supabase.removeChannel(canal);
@@ -299,6 +374,7 @@ interface LinhaAtivo {
   moeda: string;
   nome: string;
   bond?: Ativo["bond"] | null;
+  derivativo?: Ativo["derivativo"] | null;
 }
 function mapAtivo(r: LinhaAtivo): Ativo {
   return {
@@ -309,6 +385,7 @@ function mapAtivo(r: LinhaAtivo): Ativo {
     moeda: r.moeda,
     nome: r.nome,
     bond: r.bond ?? undefined,
+    derivativo: r.derivativo ?? undefined,
   };
 }
 
@@ -399,6 +476,7 @@ interface LinhaPrecos {
   acoes: Record<string, number> | null;
   tesouro: Record<string, number> | null;
   fechamento_anterior?: Record<string, number> | null;
+  taxas?: Record<string, number> | null;
 }
 function mapPrecos(r: LinhaPrecos): PrecosSnapshot {
   return {
@@ -408,6 +486,7 @@ function mapPrecos(r: LinhaPrecos): PrecosSnapshot {
     acoes: r.acoes ?? {},
     tesouro: r.tesouro ?? {},
     fechamentoAnterior: r.fechamento_anterior ?? {},
+    taxas: r.taxas ?? {},
   };
 }
 
