@@ -6,7 +6,7 @@ import { carregarTitulosTesouro, registrarTransacao, upsertAtivo } from "../data
 import { classificarAtivo, cotacaoDolarOuSnapshot, precoDeMercado } from "../data/precoProvider";
 import type { AtivoClassificado } from "../data/precoProvider";
 import { CatalogoTesouro } from "./CatalogoTesouro";
-import { fmtDataLonga, sinal } from "./grafico";
+import { fmtDataLonga } from "./grafico";
 
 interface Props {
   snapshot: PortfolioSnapshot;
@@ -53,6 +53,10 @@ function uuid() {
   return crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random();
 }
 
+function hoje() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 // ---------------------------------------------------------------------------
 
 /** Espera (ms) entre a última tecla e a consulta à bolsa. */
@@ -68,18 +72,12 @@ function ComprarAcao({ snapshot, membro, precos, carteiraId, onDone }: Props) {
   const [ocupado, setOcupado] = useState(false);
   const [det, setDet] = useState<AtivoClassificado | null>(null);
   const [detectando, setDetectando] = useState(false);
-  /** true enquanto o campo de preço ainda tem o valor de mercado que preenchemos. */
-  const [precoAutomatico, setPrecoAutomatico] = useState(true);
 
-  // Lidos DENTRO do efeito de busca. Ficam em ref para não entrarem na lista de
+  // Lido DENTRO do efeito de busca. Fica em ref para não entrar na lista de
   // dependências: `precos` troca a cada recarga de cotações e dispararia uma
   // consulta nova sem o usuário ter digitado nada.
   const precosRef = useRef(precos);
-  const precoAutoRef = useRef(precoAutomatico);
-  const precoDigitadoRef = useRef(preco);
   precosRef.current = precos;
-  precoAutoRef.current = precoAutomatico;
-  precoDigitadoRef.current = preco;
 
   /**
    * Consulta a bolsa enquanto o usuário digita: nome, tipo, bolsa, moeda e
@@ -99,10 +97,6 @@ function ComprarAcao({ snapshot, membro, precos, carteiraId, onDone }: Props) {
         const info = await classificarAtivo(tk, precosRef.current);
         if (!vivo) return;
         setDet(info);
-        if (info.precoRef != null && (precoAutoRef.current || !precoDigitadoRef.current)) {
-          setPreco(String(info.precoRef));
-          setPrecoAutomatico(true);
-        }
       } catch {
         if (vivo) setDet(null);
       } finally {
@@ -121,8 +115,13 @@ function ComprarAcao({ snapshot, membro, precos, carteiraId, onDone }: Props) {
   const simbolo = moeda === "BRL" ? "R$" : "US$";
   const fxEstimado = moeda === "BRL" ? 1 : precos.cambio?.USD ?? 1;
 
+  /**
+   * Com cotação de mercado, a compra só sai por ela — o campo fica travado.
+   * Digitar o preço só é possível quando a fonte não devolve nenhum.
+   */
+  const precoTravado = det?.precoRef != null;
   const q = Number(qtd);
-  const p = Number(preco);
+  const p = det?.precoRef ?? Number(preco);
   const custoEstimado = isFinite(q) && isFinite(p) && q > 0 && p > 0 ? q * p * fxEstimado : null;
   const caixaRestante = custoEstimado == null ? null : snapshot.caixaBRL - custoEstimado;
   const semCaixa = caixaRestante != null && caixaRestante < 0;
@@ -134,14 +133,16 @@ function ComprarAcao({ snapshot, membro, precos, carteiraId, onDone }: Props) {
       setMsg({ tipo: "erro", texto: "Informe ticker e quantidade válidos." });
       return;
     }
-    if (!isFinite(p) || p <= 0) {
-      setMsg({ tipo: "erro", texto: "Informe o preço por unidade." });
-      return;
-    }
     setOcupado(true);
     try {
       // Se o usuário submeteu antes do debounce rodar, resolve na hora.
       const info = det ?? (await classificarAtivo(digitado, precos));
+      // Havendo cotação, é ela que vale — o digitado só conta quando não há.
+      const p = info.precoRef ?? Number(preco);
+      if (!isFinite(p) || p <= 0) {
+        setMsg({ tipo: "erro", texto: "Informe o preço por unidade." });
+        return;
+      }
       // Vale o ticker que a bolsa confirmou (ver AtivoClassificado.ticker).
       const tk = info.ticker || digitado;
       const fx = info.moeda === "BRL" ? 1 : await cotacaoDolarOuSnapshot(precos);
@@ -190,7 +191,6 @@ function ComprarAcao({ snapshot, membro, precos, carteiraId, onDone }: Props) {
       setPreco("");
       setNomeManual("");
       setDet(null);
-      setPrecoAutomatico(true);
       onDone();
     } catch (e) {
       setMsg({ tipo: "erro", texto: e instanceof Error ? e.message : String(e) });
@@ -198,11 +198,6 @@ function ComprarAcao({ snapshot, membro, precos, carteiraId, onDone }: Props) {
       setOcupado(false);
     }
   }
-
-  const variacao =
-    det?.precoRef != null && p > 0 && precoAutomatico === false
-      ? ((p - det.precoRef) / det.precoRef) * 100
-      : null;
 
   return (
     <div className="card">
@@ -222,7 +217,6 @@ function ComprarAcao({ snapshot, membro, precos, carteiraId, onDone }: Props) {
               // Zera a identificação anterior: enquanto a nova não chega, nada
               // de mostrar o nome da empresa errada ao lado do ticker novo.
               setDet(null);
-              setPrecoAutomatico(true);
             }}
             placeholder="PETR4, AAPL, HGLG11…"
             autoCapitalize="characters"
@@ -233,16 +227,14 @@ function ComprarAcao({ snapshot, membro, precos, carteiraId, onDone }: Props) {
           <input id="qt" value={qtd} onChange={(e) => setQtd(e.target.value)} inputMode="decimal" placeholder="100" />
         </div>
         <div className="campo" style={{ flex: "1 1 150px" }}>
-          <label htmlFor="pr">Preço por unidade ({simbolo})</label>
+          <label htmlFor="pr">Preço por unidade ({simbolo}) {precoTravado ? "(mercado)" : ""}</label>
           <input
             id="pr"
-            value={preco}
-            onChange={(e) => {
-              setPreco(e.target.value);
-              setPrecoAutomatico(false);
-            }}
+            value={det?.precoRef != null ? fmtNum(det.precoRef, 2) : preco}
+            onChange={(e) => setPreco(e.target.value)}
+            disabled={precoTravado || det == null}
             inputMode="decimal"
-            placeholder="0,00"
+            placeholder={detectando ? "Consultando…" : "vem da bolsa"}
           />
         </div>
       </div>
@@ -261,14 +253,7 @@ function ComprarAcao({ snapshot, membro, precos, carteiraId, onDone }: Props) {
             {det.precoRef != null ? (
               <>
                 Mercado agora: <strong className="num">{simbolo} {fmtNum(det.precoRef, 2)}</strong>
-                {precoAutomatico ? (
-                  <span className="muted"> — já preenchido no campo de preço; você pode alterar.</span>
-                ) : variacao != null && Math.abs(variacao) > 0.01 ? (
-                  <span className={sinal(variacao)}>
-                    {" "}— você está registrando {variacao >= 0 ? "acima" : "abaixo"} do mercado
-                    ({variacao >= 0 ? "+" : ""}{variacao.toFixed(2)}%).
-                  </span>
-                ) : null}
+                <span className="muted"> — a compra é feita por este preço.</span>
               </>
             ) : (
               <span className="muted">Sem cotação de mercado agora — informe o preço manualmente.</span>
@@ -334,7 +319,8 @@ function Vender({ snapshot, precos, membro, carteiraId, onDone }: Props) {
   const [ticker, setTicker] = useState(posicoes[0]?.ticker ?? "");
   const [qtd, setQtd] = useState("");
   const [preco, setPreco] = useState("");
-  const [precoAutomatico, setPrecoAutomatico] = useState(true);
+  /** Cotação obtida pelo "recotar"; some ao trocar de ativo. */
+  const [recotado, setRecotado] = useState<number | null>(null);
   const [msg, setMsg] = useState<{ tipo: "ok" | "erro"; texto: string } | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const [cotando, setCotando] = useState(false);
@@ -343,19 +329,21 @@ function Vender({ snapshot, precos, membro, carteiraId, onDone }: Props) {
   const ehRF = posSel?.classe === "tesouro" || posSel?.classe === "bond";
   const simbolo = posSel?.moeda === "BRL" || !posSel ? "R$" : "US$";
 
-  // Preço sugerido: o de mercado que já temos no snapshot da carteira.
-  const sugerido = posSel?.precoAtual ?? null;
-  const precoEfetivo = precoAutomatico ? sugerido : Number(preco);
+  /**
+   * Preço de mercado: o recotado agora ou o do snapshot da carteira. Havendo
+   * um, a venda só sai por ele — o campo fica travado. Digitar só é possível
+   * quando não há cotação nenhuma.
+   */
+  const precoMercado = recotado ?? posSel?.precoAtual ?? null;
+  const precoTravado = precoMercado != null;
+  const precoEfetivo = precoMercado ?? Number(preco);
 
   async function cotarAgora() {
     if (!posSel || ehRF) return;
     setCotando(true);
     try {
       const p = await precoDeMercado(posSel.ticker, precos);
-      if (p != null) {
-        setPreco(String(p));
-        setPrecoAutomatico(false);
-      }
+      if (p != null) setRecotado(p);
     } finally {
       setCotando(false);
     }
@@ -374,7 +362,7 @@ function Vender({ snapshot, precos, membro, carteiraId, onDone }: Props) {
     }
     setOcupado(true);
     try {
-      let p = precoEfetivo;
+      let p: number | null = precoEfetivo;
       if (p == null || !isFinite(p) || p <= 0) {
         // Última tentativa: cotar na hora antes de desistir.
         p = ehRF ? posSel.custoMedioBRL : await precoDeMercado(posSel.ticker, precos);
@@ -402,7 +390,7 @@ function Vender({ snapshot, precos, membro, carteiraId, onDone }: Props) {
       });
       setQtd("");
       setPreco("");
-      setPrecoAutomatico(true);
+      setRecotado(null);
       onDone();
     } catch (e) {
       setMsg({ tipo: "erro", texto: e instanceof Error ? e.message : String(e) });
@@ -433,7 +421,7 @@ function Vender({ snapshot, precos, membro, carteiraId, onDone }: Props) {
     <div className="card">
       <div className="card__cab">
         <h3>Vender</h3>
-        <span className="muted">o preço vem cotado; você pode ajustar</span>
+        <span className="muted">a venda é feita pelo preço de mercado</span>
       </div>
 
       <div className="row" style={{ alignItems: "flex-start" }}>
@@ -445,7 +433,7 @@ function Vender({ snapshot, precos, membro, carteiraId, onDone }: Props) {
             onChange={(e) => {
               setTicker(e.target.value);
               setPreco("");
-              setPrecoAutomatico(true);
+              setRecotado(null);
             }}
           >
             {posicoes.map((p) => (
@@ -460,14 +448,12 @@ function Vender({ snapshot, precos, membro, carteiraId, onDone }: Props) {
           <input id="qv" value={qtd} onChange={(e) => setQtd(e.target.value)} inputMode="decimal" placeholder={posSel ? fmtNum(posSel.qtd, 0) : ""} />
         </div>
         <div className="campo" style={{ flex: "1 1 150px" }}>
-          <label htmlFor="pv">Preço ({simbolo})</label>
+          <label htmlFor="pv">Preço ({simbolo}) {precoTravado ? "(mercado)" : ""}</label>
           <input
             id="pv"
-            value={precoAutomatico ? (sugerido != null ? fmtNum(sugerido, 2) : "") : preco}
-            onChange={(e) => {
-              setPreco(e.target.value);
-              setPrecoAutomatico(false);
-            }}
+            value={precoMercado != null ? fmtNum(precoMercado, 2) : preco}
+            onChange={(e) => setPreco(e.target.value)}
+            disabled={precoTravado}
             inputMode="decimal"
             placeholder="0,00"
           />
@@ -478,9 +464,9 @@ function Vender({ snapshot, precos, membro, carteiraId, onDone }: Props) {
         <div className="aviso" style={{ marginBottom: "0.9rem" }}>
           Posição: <strong>{fmtNum(posSel.qtd, posSel.qtd % 1 === 0 ? 0 : 4)}</strong> un. ·
           preço médio {fmtBRL(posSel.custoMedioBRL)} ·{" "}
-          {sugerido != null ? (
+          {precoMercado != null ? (
             <>
-              mercado {simbolo} {fmtNum(sugerido, 2)}
+              mercado {simbolo} {fmtNum(precoMercado, 2)}
               {!ehRF && (
                 <button
                   className="secundario no-print"
@@ -537,7 +523,7 @@ function RendaFixa({ snapshot, membro, carteiraId, onDone }: Props) {
   const [tesouroNomeManual, setTesouroNomeManual] = useState("");
   const [indexador, setIndexador] = useState("IPCA");
   const [taxa, setTaxa] = useState("");
-  const [dataCompra, setDataCompra] = useState(new Date().toISOString().slice(0, 10));
+  const [dataCompra, setDataCompra] = useState(hoje());
   const [vencimento, setVencimento] = useState("");
   const [puCompra, setPuCompra] = useState("");
   const [valorVencimento, setValorVencimento] = useState("");
@@ -586,6 +572,7 @@ function RendaFixa({ snapshot, membro, carteiraId, onDone }: Props) {
     setTaxa(t.taxaCompra != null ? String(t.taxaCompra) : "");
     setPuCompra(t.puCompra != null ? String(t.puCompra) : "");
     setNome(t.nome);
+    setDataCompra(hoje());
   }
 
   // Nome que identifica o título: do catálogo, ou o digitado na degradação.
@@ -599,7 +586,9 @@ function RendaFixa({ snapshot, membro, carteiraId, onDone }: Props) {
   const oficial = isTesouro ? selecionado : null;
   /** Só trava o PU se a fonte realmente informou um. */
   const puTravado = oficial?.puCompra != null;
-  const puEfetivo = Number(puCompra);
+  // PU oficial é o de hoje, então a compra também é de hoje.
+  const puEfetivo = oficial?.puCompra ?? Number(puCompra);
+  const dataEfetiva = oficial ? hoje() : dataCompra;
   const q = Number(qtd);
   const custo = isFinite(q) && isFinite(puEfetivo) && q > 0 && puEfetivo > 0 ? q * puEfetivo : null;
 
@@ -645,7 +634,7 @@ function RendaFixa({ snapshot, membro, carteiraId, onDone }: Props) {
           tesouroSlug: isTesouro ? selecionado?.slug : undefined,
           indexador,
           taxaContratada: taxa ? Number(taxa) / 100 : undefined,
-          dataCompra,
+          dataCompra: dataEfetiva,
           vencimento,
           puCompra: pu,
           valorVencimento: vvEfetivo,
@@ -762,8 +751,14 @@ function RendaFixa({ snapshot, membro, carteiraId, onDone }: Props) {
           />
         </div>
         <div className="campo" style={{ flex: "1 1 150px" }}>
-          <label htmlFor="dc">Data da compra</label>
-          <input id="dc" type="date" value={dataCompra} onChange={(e) => setDataCompra(e.target.value)} />
+          <label htmlFor="dc">Data da compra {oficial ? "(hoje)" : ""}</label>
+          <input
+            id="dc"
+            type="date"
+            value={dataEfetiva}
+            onChange={(e) => setDataCompra(e.target.value)}
+            disabled={oficial != null}
+          />
         </div>
         <div className="campo" style={{ flex: "1 1 150px" }}>
           <label htmlFor="vc">Vencimento {oficial ? "(oficial)" : ""}</label>
