@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fmtBRL, fmtNum } from "../engine/report";
 import { rotuloIndexador, sufixoIndexador, type TituloTesouro } from "../engine/tesouro";
-import type { Ativo, ClasseAtivo, PortfolioSnapshot, PrecosSnapshot, TxTrade } from "../engine/types";
+import type { Ativo, PortfolioSnapshot, PrecosSnapshot, TxTrade } from "../engine/types";
 import { carregarTitulosTesouro, registrarTransacao, upsertAtivo } from "../data/supabaseClient";
 import { classificarAtivo, cotacaoDolarOuSnapshot, precoDeMercado } from "../data/precoProvider";
 import type { AtivoClassificado } from "../data/precoProvider";
@@ -10,6 +10,7 @@ import { OperarCripto } from "./Cripto";
 import { OperarFuturo, type OrdemSugerida } from "./Derivativos";
 import { CRIPTOS } from "../data/mercadoB3";
 import { fmtDataLonga } from "./grafico";
+import { ROTULO_CLASSE } from "./rotulos";
 
 interface Props {
   snapshot: PortfolioSnapshot;
@@ -21,16 +22,6 @@ interface Props {
 }
 
 type Sub = "acoes" | "vender" | "rendafixa" | "cripto" | "futuros";
-
-const ROTULO_CLASSE: Record<ClasseAtivo, string> = {
-  acao: "Ação",
-  etf: "ETF",
-  fii: "FII",
-  tesouro: "Tesouro",
-  bond: "Título",
-  futuro: "Futuro",
-  cripto: "Cripto",
-};
 
 export function Trade(props: Props & { ordemSugerida?: OrdemSugerida | null }) {
   const { ordemSugerida, ...base } = props;

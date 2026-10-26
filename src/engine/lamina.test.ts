@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Evolucao, PontoRentabilidade } from "./evolucao";
-import { computarLamina } from "./lamina";
+import { computarLamina, pregoesDoHistorico } from "./lamina";
 
 /** Evolução sintética a partir de níveis diários (1 = início). */
 function evolucao(pontos: Array<{ data: string; c: number; cdi?: number; ibov?: number }>): Evolucao {
@@ -65,6 +65,7 @@ describe("computarLamina", () => {
     expect(i.drawdownMax).toBeCloseTo((0.99 / 1.02 - 1) * 100, 6);
     expect(i.drawdownPico).toBe("2026-01-30");
     expect(i.drawdownFundo).toBe("2026-02-27");
+    expect(i.meses).toBe(3);
     expect(i.mesesPositivos).toBe(2);
     expect(i.mesesNegativos).toBe(1);
     expect(i.piorMes!.mes).toBe("2026-02");
@@ -108,5 +109,37 @@ describe("computarLamina", () => {
     });
     const pregoes = new Set(pts.filter((_, k) => k < 25).map((p) => p.data));
     expect(computarLamina(evolucao(pts), pregoes).indicadores.dias).toBe(25);
+  });
+
+  it("beta ignora pares de dias com lacuna no IBOV", () => {
+    // carteira = 2 × IBOV todo dia; um buraco no IBOV não pode distorcer o beta
+    let c = 1;
+    let ibov = 1;
+    const pts = Array.from({ length: 40 }, (_, k) => {
+      const d = new Date(Date.UTC(2026, 0, 1 + k)).toISOString().slice(0, 10);
+      const r = 0.01 * Math.sin(k * 1.7);
+      if (k > 0) {
+        c *= 1 + 2 * r;
+        ibov *= 1 + r;
+      }
+      const lacuna = k >= 10 && k < 15;
+      return { data: d, c, cdi: 1, ...(lacuna ? {} : { ibov }) };
+    });
+    const i = computarLamina(evolucao(pts)).indicadores;
+    expect(i.dias).toBe(39);
+    expect(i.beta).toBeCloseTo(2, 6);
+    expect(i.correlacao).toBeCloseTo(1, 6);
+  });
+});
+
+describe("pregoesDoHistorico", () => {
+  it("conta qualquer dia com IBOV, CDI ou cotação, não só IBOV", () => {
+    const p = pregoesDoHistorico([
+      { data: "2026-01-05", acoes: {}, cambio: {}, indices: { IBOV: 1, CDI: 1 } },
+      { data: "2026-01-06", acoes: {}, cambio: {}, indices: { CDI: 1 } },
+      { data: "2026-01-07", acoes: { PETR4: 30 }, cambio: {}, indices: {} },
+      { data: "2026-01-10", acoes: {}, cambio: { USD: 5 }, indices: {} },
+    ]);
+    expect([...p]).toEqual(["2026-01-05", "2026-01-06", "2026-01-07"]);
   });
 });

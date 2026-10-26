@@ -391,3 +391,8 @@ function retornosMensais(serie: PontoSerie[]): RetornoMensal[] {
 export function ymd(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
+
+/** Data civil em Brasília ("AAAA-MM-DD"): o dia do relógio de quem usa o app, não o de UTC. */
+export function ymdBR(d: Date): string {
+  return d.toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+}

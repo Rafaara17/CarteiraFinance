@@ -3,15 +3,7 @@ import type { PortfolioSnapshot } from "../engine/types";
 import { BarraAlocacao } from "./Allocation";
 import { sinal, usarPaleta, useTemaEscuro } from "./grafico";
 import { Positions } from "./Positions";
-
-const ROTULO_CLASSE: Record<string, string> = {
-  acao: "Ações",
-  etf: "ETFs",
-  fii: "FIIs",
-  tesouro: "Tesouro Direto",
-  bond: "Renda fixa",
-  cripto: "Cripto",
-};
+import { ROTULO_GRUPO } from "./rotulos";
 
 interface Props {
   nome: string;
@@ -89,7 +81,7 @@ export function CarteiraDeMembro(props: Props) {
             <BarraAlocacao
               itens={snapshot.alocacaoPorClasse}
               paleta={paleta}
-              rotular={(c) => ROTULO_CLASSE[c] ?? c}
+              rotular={(c) => ROTULO_GRUPO[c] ?? c}
             />
           </div>
         )}

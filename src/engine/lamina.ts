@@ -13,6 +13,7 @@
 // patrimônio já é a rentabilidade por cota — não é preciso cotizar.
 
 import { retornosPorChave, type Evolucao } from "./evolucao";
+import type { HistoricoPrecos } from "./types";
 
 export type JanelaLamina = "mes" | "ano" | "12m" | "inicio";
 
@@ -62,6 +63,8 @@ export interface Indicadores {
   informationRatio: number | null;
   /** VaR histórico 95% de 1 dia, em % do patrimônio (positivo = perda). */
   var95: number | null;
+  /** meses com retorno na grade (inclui os de retorno zero). */
+  meses: number;
   mesesPositivos: number;
   mesesNegativos: number;
   mesesAcimaCDI: number;
@@ -96,6 +99,8 @@ interface Nivel {
   carteira: number;
   CDI: number | null;
   IBOV: number | null;
+  /** o IBOV deste dia é cotação real (não forward-fill). */
+  ibovNoDia: boolean;
 }
 
 /**
@@ -108,8 +113,26 @@ function niveis(ev: Evolucao): Nivel[] {
   return ev.serieRentabilidade.map((p) => {
     if (typeof p.CDI === "number") cdi = 1 + p.CDI / 100;
     if (typeof p.IBOV === "number") ibov = 1 + p.IBOV / 100;
-    return { data: p.data, carteira: 1 + p.carteira / 100, CDI: cdi, IBOV: ibov };
+    return { data: p.data, carteira: 1 + p.carteira / 100, CDI: cdi, IBOV: ibov, ibovNoDia: typeof p.IBOV === "number" };
   });
+}
+
+/**
+ * Dias de pregão da série: qualquer dia com IBOV, CDI ou cotação de ação. Não
+ * depende só do IBOV — uma falha no backfill dele não pode fundir vários dias
+ * da carteira num único "retorno diário".
+ */
+export function pregoesDoHistorico(historico: HistoricoPrecos): Set<string> {
+  return new Set(
+    historico
+      .filter(
+        (p) =>
+          typeof p.indices.IBOV === "number" ||
+          typeof p.indices.CDI === "number" ||
+          Object.keys(p.acoes).length > 0,
+      )
+      .map((p) => p.data),
+  );
 }
 
 /** Primeiro dia de cada janela, relativo à data-base. */
@@ -213,16 +236,25 @@ function indicadores(ns: Nivel[], pregoes: Set<string> | undefined): Indicadores
   const dias = pregoes ? ns.filter((n, i) => pregoes.has(n.data) || i === ns.length - 1) : ns;
   const rc: number[] = [];
   const rcdi: number[] = [];
+  // Pares carteira × IBOV só onde os dois dias têm IBOV de verdade: com lacuna
+  // no índice, o retorno dele cobriria vários dias contra um da carteira.
+  const rcPar: number[] = [];
   const ribov: number[] = [];
   for (let i = 1; i < dias.length; i++) {
     const a = dias[i - 1];
     const b = dias[i];
-    rc.push(b.carteira / a.carteira - 1);
+    const r = b.carteira / a.carteira - 1;
+    rc.push(r);
     rcdi.push(a.CDI && b.CDI ? b.CDI / a.CDI - 1 : 0);
-    ribov.push(a.IBOV && b.IBOV ? b.IBOV / a.IBOV - 1 : 0);
+    if (a.ibovNoDia && b.ibovNoDia && a.IBOV && b.IBOV) {
+      rcPar.push(r);
+      ribov.push(b.IBOV / a.IBOV - 1);
+    }
   }
   const n = rc.length;
   const suficiente = n >= MIN_RETORNOS;
+  const suficienteIbov = ribov.length >= MIN_RETORNOS;
+  const temRiscoPar = desvio(rcPar) > 1e-9;
   // Carteira parada (só caixa) não tem risco: índices de risco/retorno sobre
   // volatilidade zero explodem e não significam nada.
   const temRisco = desvio(rc) > 1e-9;
@@ -232,7 +264,8 @@ function indicadores(ns: Nivel[], pregoes: Set<string> | undefined): Indicadores
   const sdExc = desvio(excesso);
   const baixa = Math.sqrt(media(excesso.map((e) => Math.min(e, 0) ** 2)));
   const varIbov = covariancia(ribov, ribov);
-  const ativo = rc.map((r, i) => r - ribov[i]);
+  const volPar = desvio(rcPar);
+  const ativo = rcPar.map((r, i) => r - ribov[i]);
   const te = desvio(ativo);
 
   // Drawdown máximo sobre a curva inteira (inclui fins de semana: não muda o pico).
@@ -275,11 +308,13 @@ function indicadores(ns: Nivel[], pregoes: Set<string> | undefined): Indicadores
     drawdownMax: dd * 100,
     drawdownPico: ddPico,
     drawdownFundo: ddFundo,
-    beta: suficiente && temRisco && varIbov > 0 ? covariancia(rc, ribov) / varIbov : null,
-    correlacao: suficiente && temRisco && varIbov > 0 && vol > 0 ? covariancia(rc, ribov) / (vol * Math.sqrt(varIbov)) : null,
-    trackingError: suficiente && te > 0 ? te * Math.sqrt(PREGOES_ANO) * 100 : null,
-    informationRatio: suficiente && temRisco && te > 0 ? (media(ativo) / te) * Math.sqrt(PREGOES_ANO) : null,
+    beta: suficienteIbov && temRiscoPar && varIbov > 0 ? covariancia(rcPar, ribov) / varIbov : null,
+    correlacao:
+      suficienteIbov && temRiscoPar && varIbov > 0 ? covariancia(rcPar, ribov) / (volPar * Math.sqrt(varIbov)) : null,
+    trackingError: suficienteIbov && te > 0 ? te * Math.sqrt(PREGOES_ANO) * 100 : null,
+    informationRatio: suficienteIbov && temRiscoPar && te > 0 ? (media(ativo) / te) * Math.sqrt(PREGOES_ANO) : null,
     var95: suficiente ? Math.max(0, -quantil(rc, 0.05)) * 100 : null,
+    meses: mc.length,
     mesesPositivos: mc.filter(([, v]) => v > 0).length,
     mesesNegativos: mc.filter(([, v]) => v < 0).length,
     mesesAcimaCDI: mc.filter(([k, v]) => mcdi.has(k) && v > (mcdi.get(k) as number)).length,
@@ -302,6 +337,7 @@ const INDICADORES_VAZIOS: Indicadores = {
   trackingError: null,
   informationRatio: null,
   var95: null,
+  meses: 0,
   mesesPositivos: 0,
   mesesNegativos: 0,
   mesesAcimaCDI: 0,

@@ -1,15 +1,7 @@
 import { fmtBRL, fmtPct } from "../engine/report";
 import type { AlocacaoItem, PortfolioSnapshot } from "../engine/types";
 import { usarPaleta, useTemaEscuro } from "./grafico";
-
-const ROTULO_CLASSE: Record<string, string> = {
-  acao: "Ações",
-  etf: "ETFs",
-  fii: "FIIs",
-  tesouro: "Tesouro Direto",
-  bond: "Renda fixa",
-  cripto: "Cripto",
-};
+import { ROTULO_GRUPO } from "./rotulos";
 
 export function Allocation({ snapshot }: { snapshot: PortfolioSnapshot }) {
   const paleta = usarPaleta(useTemaEscuro());
@@ -29,7 +21,7 @@ export function Allocation({ snapshot }: { snapshot: PortfolioSnapshot }) {
 
   return (
     <div className="grid">
-      <Bloco titulo="Por classe de ativo" itens={snapshot.alocacaoPorClasse} paleta={paleta} rotular={(c) => ROTULO_CLASSE[c] ?? c} />
+      <Bloco titulo="Por classe de ativo" itens={snapshot.alocacaoPorClasse} paleta={paleta} rotular={(c) => ROTULO_GRUPO[c] ?? c} />
       <Bloco titulo="Por bolsa" itens={snapshot.alocacaoPorBolsa} paleta={paleta} />
       <Bloco titulo="Por moeda" itens={snapshot.alocacaoPorMoeda} paleta={paleta} />
     </div>

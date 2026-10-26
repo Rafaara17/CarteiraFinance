@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { fmtBRL, fmtPct } from "../engine/report";
 import type { PortfolioSnapshot } from "../engine/types";
 import { Marca } from "./Marca";
@@ -58,8 +58,26 @@ export function Shell(props: Props) {
   const inicial = membro.trim().charAt(0).toUpperCase() || "?";
   const rotuloCarteira = pessoal ? `Carteira de ${membro}` : "Carteira da liga";
 
-  // Trocar de tela fecha o menu "Mais" do celular.
+  // Trocar de tela fecha o menu "Mais" do celular; tocar fora ou Esc também.
   useEffect(() => setMaisAberto(false), [ativo, escopo]);
+  const menuMais = useRef<HTMLDivElement>(null);
+  const botaoMais = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!maisAberto) return;
+    const fora = (e: PointerEvent) => {
+      const alvo = e.target as Node;
+      if (!menuMais.current?.contains(alvo) && !botaoMais.current?.contains(alvo)) setMaisAberto(false);
+    };
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMaisAberto(false);
+    };
+    document.addEventListener("pointerdown", fora);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("pointerdown", fora);
+      document.removeEventListener("keydown", esc);
+    };
+  }, [maisAberto]);
 
   function irParaLiga(id: string) {
     props.onTrocarEscopo("liga");
@@ -187,20 +205,29 @@ export function Shell(props: Props) {
       </div>
 
       {maisAberto && (
-        <div className="mais-menu no-print" role="menu" aria-label="Mais">
+        <div className="mais-menu no-print" role="menu" aria-label="Mais" ref={menuMais}>
           {noMais.map((i) => (
             <button
               key={i.id}
               role="menuitem"
               className={ativo === i.id ? "ativo" : ""}
-              onClick={() => onNavegar(i.id)}
+              onClick={() => {
+                setMaisAberto(false);
+                onNavegar(i.id);
+              }}
             >
               <span className="ico" aria-hidden="true">{i.ico}</span>
               {i.titulo ?? i.rotulo}
             </button>
           ))}
           {pessoal && (
-            <button role="menuitem" onClick={() => irParaLiga("comparar")}>
+            <button
+              role="menuitem"
+              onClick={() => {
+                setMaisAberto(false);
+                irParaLiga("comparar");
+              }}
+            >
               <span className="ico" aria-hidden="true">⚖</span>
               Ranking da liga
             </button>
@@ -225,6 +252,7 @@ export function Shell(props: Props) {
           </button>
         ))}
         <button
+          ref={botaoMais}
           className={maisAtivo || maisAberto ? "ativo" : ""}
           onClick={() => setMaisAberto((v) => !v)}
           aria-expanded={maisAberto}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { getSession, nomeSugerido, onAuthChange, signOut, usuarioId } from "./data/session";
 import { LIGA_WALLET_ID } from "./data/supabaseClient";
@@ -80,6 +80,13 @@ export function App() {
     ...(dados.ehAdmin ? [{ id: "admin", rotulo: "Membros", ico: "⚙" }] : []),
   ];
   const itens = pessoal ? itensIndividual : itensLiga;
+
+  // Relatório e Lâmina levam o nome da carteira no título. Memoizado: um objeto
+  // novo a cada render refaria toda a evolução histórica da Lâmina.
+  const configDaCarteira = useMemo(
+    () => (pessoal && dados.config ? { ...dados.config, nomeLiga: `Carteira individual — ${membro}` } : dados.config),
+    [pessoal, dados.config, membro],
+  );
 
   // Se a aba atual deixou de existir (mudança de papel ou de escopo), volta para
   // a Visão em vez de deixar a tela em branco.
@@ -247,7 +254,7 @@ export function App() {
         )}
         {aba === "relatorio" && (
           <Report
-            config={pessoal ? { ...config, nomeLiga: `Carteira individual — ${membro}` } : config}
+            config={configDaCarteira ?? config}
             snapshot={snapshot}
             transacoes={transacoes}
             ativos={dados.ativos}
@@ -257,7 +264,7 @@ export function App() {
         )}
         {aba === "lamina" && (
           <Lamina
-            config={pessoal ? { ...config, nomeLiga: `Carteira individual — ${membro}` } : config}
+            config={configDaCarteira ?? config}
             snapshot={snapshot}
             transacoes={transacoes}
             ativos={dados.ativos}

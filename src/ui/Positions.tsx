@@ -1,16 +1,7 @@
 import { fmtBRL, fmtNum, fmtPct } from "../engine/report";
 import type { PortfolioSnapshot, Posicao } from "../engine/types";
 import { sinal } from "./grafico";
-
-const ROTULO_CLASSE: Record<string, string> = {
-  acao: "Ação",
-  etf: "ETF",
-  fii: "FII",
-  tesouro: "Tesouro",
-  bond: "Título",
-  futuro: "Futuro",
-  cripto: "Cripto",
-};
+import { ROTULO_CLASSE } from "./rotulos";
 
 export function Positions({ snapshot }: { snapshot: PortfolioSnapshot }) {
   if (snapshot.posicoes.length === 0) {

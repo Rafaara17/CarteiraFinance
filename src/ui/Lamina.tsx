@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ReferenceLine, ResponsiveContainer, XAxis, YAxis } from "recharts";
-import { comPontoDeHoje, computarEvolucao, ymd } from "../engine/evolucao";
-import { ROTULO_JANELA, computarLamina, pctDoCDI, type Lamina as DadosLamina } from "../engine/lamina";
-import { fmtBRL } from "../engine/report";
+import { comPontoDeHoje, computarEvolucao, ymdBR } from "../engine/evolucao";
+import { ROTULO_JANELA, computarLamina, pctDoCDI, pregoesDoHistorico, type Lamina as DadosLamina } from "../engine/lamina";
+import { fmtBRL, fmtNum } from "../engine/report";
 import type { Ativo, Config, PortfolioSnapshot, Transacao } from "../engine/types";
 import { fmtData, fmtMes } from "./grafico";
 import { Marca } from "./Marca";
 import { useHistorico } from "./useHistorico";
+import { ROTULO_GRUPO } from "./rotulos";
 
 interface Props {
   config: Config;
@@ -25,17 +26,6 @@ const COR = {
   IBOV: "#eb6834",
   grade: "#e4e0d8",
   eixo: "#80858c",
-};
-
-const ROTULO_CLASSE: Record<string, string> = {
-  acao: "Ações",
-  etf: "ETFs",
-  fii: "FIIs",
-  tesouro: "Tesouro Direto",
-  bond: "Renda fixa",
-  cripto: "Cripto",
-  futuro: "Futuros",
-  caixa: "Caixa",
 };
 
 const COR_CLASSE: Record<string, string> = {
@@ -62,21 +52,24 @@ const PIZZA_PX = Math.round((30 / 25.4) * 96);
 
 export function Lamina({ config, snapshot, transacoes, ativos }: Props) {
   const { historico, carregando, erro } = useHistorico();
-  const hoje = useMemo(() => new Date(), []);
+  const hojeYMD = useHojeBR();
 
   const lamina = useMemo<DadosLamina | null>(() => {
     if (!historico) return null;
     // A lâmina começa na PRIMEIRA operação: antes dela a carteira é só caixa
     // parado (caso da carteira individual ativada depois do início da liga), e
     // esse trecho achataria volatilidade, Sharpe e a grade mensal.
+    // Datas no fuso de Brasília: uma compra às 21h30 é do dia dela, não do seguinte (UTC).
     const primeira = transacoes.reduce<string | null>((m, t) => (m == null || t.ts < m ? t.ts : m), null);
     const inicio = config.dataInicio.slice(0, 10);
-    const de = primeira && primeira.slice(0, 10) > inicio ? primeira.slice(0, 10) : inicio;
-    const intervalo = { de, ate: ymd(hoje) };
+    const diaPrimeira = primeira ? ymdBR(new Date(primeira)) : null;
+    const de = diaPrimeira && diaPrimeira > inicio ? diaPrimeira : inicio;
+    const intervalo = { de, ate: hojeYMD };
+    // Meio-dia UTC do dia de Brasília: `comPontoDeHoje` data o ponto por UTC.
+    const hoje = new Date(`${hojeYMD}T12:00:00Z`);
     const ev = comPontoDeHoje(computarEvolucao(config, transacoes, ativos, historico, intervalo), snapshot.patrimonioBRL, hoje);
-    const pregoes = new Set(historico.filter((p) => typeof p.indices.IBOV === "number").map((p) => p.data));
-    return computarLamina(ev, pregoes);
-  }, [historico, config, transacoes, ativos, snapshot.patrimonioBRL, hoje]);
+    return computarLamina(ev, pregoesDoHistorico(historico));
+  }, [historico, config, transacoes, ativos, snapshot.patrimonioBRL, hojeYMD]);
 
   const [gerando, setGerando] = useState(false);
   const [erroPdf, setErroPdf] = useState<string | null>(null);
@@ -94,7 +87,7 @@ export function Lamina({ config, snapshot, transacoes, ativos }: Props) {
     }
   };
 
-  const [comentario, setComentario] = useComentario(config.nomeLiga, ymd(hoje).slice(0, 7));
+  const [comentario, setComentario] = useComentario(config.nomeLiga, hojeYMD.slice(0, 7));
 
   return (
     <div className="lamina-tela grid">
@@ -183,25 +176,53 @@ function slug(texto: string): string {
     .replace(/^-|-$/g, "");
 }
 
-/** Comentário salvo no navegador, por carteira e mês: é rascunho de quem imprime. */
+/**
+ * Dia de hoje em Brasília, que vira à meia-noite mesmo com a aba aberta: a
+ * lâmina não pode ficar presa no mês de quando a tela foi aberta.
+ */
+function useHojeBR(): string {
+  const [hoje, setHoje] = useState(() => ymdBR(new Date()));
+  useEffect(() => {
+    const conferir = () => setHoje(ymdBR(new Date()));
+    const id = window.setInterval(conferir, 60_000);
+    document.addEventListener("visibilitychange", conferir);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", conferir);
+    };
+  }, []);
+  return hoje;
+}
+
+/**
+ * Comentário salvo no navegador, por carteira e mês: é rascunho de quem imprime.
+ * O texto fica preso à chave em que foi escrito — trocar de carteira (ou virar o
+ * mês) com a lâmina aberta carrega o rascunho da nova chave, sem gravar o da
+ * anterior por cima dele.
+ */
 function useComentario(carteira: string, mes: string): [string, (v: string) => void] {
   const chave = `lamina-comentario:${carteira}:${mes}`;
-  const [texto, setTexto] = useState(() => {
-    try {
-      return localStorage.getItem(chave) ?? "";
-    } catch {
-      return "";
-    }
-  });
-  useEffect(() => {
+  const [estado, setEstado] = useState(() => ({ chave, texto: lerComentario(chave) }));
+  const atual = estado.chave === chave ? estado : { chave, texto: lerComentario(chave) };
+  if (atual !== estado) setEstado(atual);
+  const setTexto = (texto: string) => {
+    setEstado({ chave, texto });
     try {
       if (texto) localStorage.setItem(chave, texto);
       else localStorage.removeItem(chave);
     } catch {
       // armazenamento bloqueado: o comentário só vive nesta sessão
     }
-  }, [chave, texto]);
-  return [texto, setTexto];
+  };
+  return [atual.texto, setTexto];
+}
+
+function lerComentario(chave: string): string {
+  try {
+    return localStorage.getItem(chave) ?? "";
+  } catch {
+    return "";
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -257,7 +278,7 @@ function Folha({
                 ["Benchmark", "CDI"],
                 ["Referência de mercado", "Ibovespa"],
                 ["Nº de ativos", String(snapshot.posicoes.filter((p) => !p.derivativo).length)],
-                ["Caixa", `${fmtBRL(snapshot.caixaBRL)} (${pct(pl > 0 ? (snapshot.caixaBRL / pl) * 100 : null)})`],
+                ["Caixa", `${fmtBRL(snapshot.caixaBRL)} (${pct(pctAlocacao(snapshot, snapshot.caixaBRL))})`],
                 ...nocionalFuturos(snapshot),
                 ["Moeda", config.moedaBase],
                 ["Gestão", "ESALQ Finance"],
@@ -413,7 +434,7 @@ function Lista({ itens }: { itens: Array<[string, string, string?]> }) {
 
 function Indicadores({ lamina }: { lamina: DadosLamina }) {
   const i = lamina.indicadores;
-  const meses = i.mesesPositivos + i.mesesNegativos;
+  const meses = i.meses;
   return (
     <Lista
       itens={[
@@ -520,17 +541,29 @@ function GradeMensal({ lamina }: { lamina: DadosLamina }) {
   );
 }
 
-function Alocacao({ snapshot }: { snapshot: PortfolioSnapshot }) {
-  const pl = snapshot.patrimonioBRL;
-  // Sobre o PATRIMÔNIO (com caixa): é o que soma 100% na lâmina. Futuros ficam
-  // fora — o valor deles é o P&L do ajuste, não exposição (ver Características).
+/**
+ * Itens da alocação por classe, com caixa: é o que soma 100% na lâmina. Futuros
+ * ficam fora — o valor deles é o P&L do ajuste, não exposição (ver Características).
+ */
+function itensAlocacao(snapshot: PortfolioSnapshot) {
   const itens = [
     ...snapshot.alocacaoPorClasse.map((a) => ({ chave: a.chave, valor: a.valorBRL })),
     ...(snapshot.caixaBRL > 0 ? [{ chave: "caixa", valor: snapshot.caixaBRL }] : []),
   ]
     .filter((a) => a.valor > 0)
     .sort((a, b) => b.valor - a.valor);
-  const total = itens.reduce((s, a) => s + a.valor, 0) || pl;
+  const total = itens.reduce((s, a) => s + a.valor, 0) || snapshot.patrimonioBRL;
+  return { itens, total };
+}
+
+/** % sobre a mesma base da alocação: o caixa sai igual em Características e na pizza. */
+function pctAlocacao(snapshot: PortfolioSnapshot, valor: number): number | null {
+  const { total } = itensAlocacao(snapshot);
+  return total > 0 ? (valor / total) * 100 : null;
+}
+
+function Alocacao({ snapshot }: { snapshot: PortfolioSnapshot }) {
+  const { itens, total } = itensAlocacao(snapshot);
   if (!itens.length) return <p className="lamina__texto">Sem posições.</p>;
   return (
     <div className="lamina__aloc">
@@ -555,7 +588,7 @@ function Alocacao({ snapshot }: { snapshot: PortfolioSnapshot }) {
       <dl className="lamina__lista lamina__lista--aloc">
         {itens.map((a) => (
           <div key={a.chave}>
-            <dt><i style={{ background: COR_CLASSE[a.chave] ?? "#8a8f96" }} />{ROTULO_CLASSE[a.chave] ?? a.chave}</dt>
+            <dt><i style={{ background: COR_CLASSE[a.chave] ?? "#8a8f96" }} />{ROTULO_GRUPO[a.chave] ?? a.chave}</dt>
             <dd>{pct((a.valor / total) * 100)}</dd>
           </div>
         ))}
@@ -588,7 +621,7 @@ function Posicoes({ snapshot }: { snapshot: PortfolioSnapshot }) {
             <td>
               <b>{p.ticker}</b> <span className="lamina__nome">{p.nome !== p.ticker ? p.nome : ""}</span>
             </td>
-            <td>{ROTULO_CLASSE[p.classe] ?? p.classe}</td>
+            <td>{ROTULO_GRUPO[p.classe] ?? p.classe}</td>
             <td className={`r ${cor(p.plNaoRealizadoPct)}`}>{pct(p.plNaoRealizadoPct, true)}</td>
             {/* barra e número em colunas próprias: toda barra parte do mesmo ponto */}
             <td className="lamina__peso-cel">
@@ -624,15 +657,18 @@ function cdiDe(x?: { carteira: number | null; CDI: number | null; pctCDI: number
 /** Percentual no padrão das lâminas: "1,23%" (com `sinal`, "+1,23%"). */
 function pct(v: number | null | undefined, sinal = false, casas = 2, simbolo = true): string {
   if (v == null || !isFinite(v)) return "—";
-  const s = v.toLocaleString("pt-BR", { minimumFractionDigits: casas, maximumFractionDigits: casas });
-  return `${sinal && v > 0 ? "+" : ""}${s.replace("-", "−")}${simbolo ? "%" : ""}`;
+  return `${sinal && v > 0 ? "+" : ""}${num(v, casas)}${simbolo ? "%" : ""}`;
 }
 
-function num(v: number | null | undefined): string {
-  if (v == null || !isFinite(v)) return "—";
-  return v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).replace("-", "−");
+/** `fmtNum` com o sinal de menos tipográfico (−) do documento impresso. */
+function num(v: number | null | undefined, casas = 2): string {
+  return fmtNum(v, casas).replace("-", "−");
 }
 
+/**
+ * Classe de cor de um número. Diferente de `sinal` (grafico.tsx), zero fica
+ * neutro: na lâmina, um "0,00%" verde sugere ganho que não houve.
+ */
 function cor(v: number | null | undefined): string {
   if (v == null || !isFinite(v) || v === 0) return "";
   return v > 0 ? "pos" : "neg";
