@@ -9,6 +9,7 @@ import { Comparar } from "./ui/Comparar";
 import { Dashboard } from "./ui/Dashboard";
 import type { OrdemSugerida } from "./ui/Derivativos";
 import { History } from "./ui/History";
+import { Lamina } from "./ui/Lamina";
 import { Login } from "./ui/Login";
 import { PerfilNome } from "./ui/PerfilNome";
 import { Positions } from "./ui/Positions";
@@ -59,17 +60,26 @@ export function App() {
   const ultimaAtualizacao = pessoal ? dados.ultimaAtualizacaoMinha : dados.ultimaAtualizacaoLiga;
   const podeOperar = pessoal ? ativada : dados.podeGerirLiga;
 
-  const itens: ItemNav[] = [
+  // Duas áreas, as mesmas telas: MINHA CARTEIRA e LIGA. Ranking e Membros só
+  // existem na liga — dizem respeito a todos, não a uma carteira.
+  const telasComuns = (operar: boolean): ItemNav[] => [
     { id: "visao", rotulo: "Visão geral", curto: "Visão", ico: "◧" },
-    ...(podeOperar ? [{ id: "operar", rotulo: "Operar", ico: "⇄" }] : []),
-    { id: "posicoes", rotulo: "Posições", curto: "Posições", ico: "☰" },
-    { id: "alocacao", rotulo: "Alocação", ico: "◔" },
-    { id: "protecao", rotulo: "Proteção", curto: "Hedge", ico: "⛨" },
-    { id: "relatorio", rotulo: "Relatório", curto: "Relat.", ico: "▤" },
-    { id: "historico", rotulo: "Histórico", curto: "Hist.", ico: "↻" },
-    { id: "comparar", rotulo: "Comparar", ico: "⚖" },
-    ...(dados.ehAdmin ? [{ id: "admin", rotulo: "Admin", ico: "⚙" }] : []),
+    ...(operar ? [{ id: "operar", rotulo: "Operar", ico: "⇄" }] : []),
+    { id: "posicoes", rotulo: "Posições", titulo: "Posições e alocação", ico: "☰" },
+    { id: "protecao", rotulo: "Risco e hedge", curto: "Risco", ico: "⛨" },
+    { id: "relatorio", rotulo: "Relatório", ico: "▤" },
+    { id: "lamina", rotulo: "Lâmina", titulo: "Lâmina de resultados", ico: "▦" },
+    { id: "historico", rotulo: "Histórico", ico: "↻" },
   ];
+  const itensIndividual: ItemNav[] = ativada
+    ? telasComuns(true)
+    : [{ id: "visao", rotulo: "Ativar carteira", titulo: "Ativar carteira individual", curto: "Ativar", ico: "◧" }];
+  const itensLiga: ItemNav[] = [
+    ...telasComuns(dados.podeGerirLiga),
+    { id: "comparar", rotulo: "Ranking", titulo: "Ranking e disputa", ico: "⚖" },
+    ...(dados.ehAdmin ? [{ id: "admin", rotulo: "Membros", ico: "⚙" }] : []),
+  ];
+  const itens = pessoal ? itensIndividual : itensLiga;
 
   // Se a aba atual deixou de existir (mudança de papel ou de escopo), volta para
   // a Visão em vez de deixar a tela em branco.
@@ -118,7 +128,6 @@ export function App() {
   }
 
   const { config, precos } = dados;
-  const rotuloCarteira = pessoal ? "Carteira individual" : config?.nomeLiga ?? "Carteira da Liga";
 
   function conteudo() {
     if (aba === "admin" && dados.ehAdmin) {
@@ -230,8 +239,12 @@ export function App() {
             }
           />
         )}
-        {aba === "posicoes" && <Positions snapshot={snapshot} />}
-        {aba === "alocacao" && <Allocation snapshot={snapshot} />}
+        {aba === "posicoes" && (
+          <div className="grid">
+            <Positions snapshot={snapshot} />
+            {snapshot.alocacaoPorClasse.length > 0 && <Allocation snapshot={snapshot} />}
+          </div>
+        )}
         {aba === "relatorio" && (
           <Report
             config={pessoal ? { ...config, nomeLiga: `Carteira individual — ${membro}` } : config}
@@ -242,6 +255,14 @@ export function App() {
             membro={membro}
           />
         )}
+        {aba === "lamina" && (
+          <Lamina
+            config={pessoal ? { ...config, nomeLiga: `Carteira individual — ${membro}` } : config}
+            snapshot={snapshot}
+            transacoes={transacoes}
+            ativos={dados.ativos}
+          />
+        )}
         {aba === "historico" && <History transacoes={transacoes} />}
       </>
     );
@@ -249,7 +270,8 @@ export function App() {
 
   return (
     <Shell
-      itens={itens}
+      itensIndividual={itensIndividual}
+      itensLiga={itensLiga}
       ativo={aba}
       onNavegar={(id) => {
         // Navegar à mão descarta a ordem pré-montada: Operar volta ao normal.
@@ -259,7 +281,6 @@ export function App() {
       escopo={escopo}
       onTrocarEscopo={trocarEscopo}
       carteiraAtivada={ativada}
-      rotuloCarteira={rotuloCarteira}
       membro={membro}
       papel={ROTULO_PAPEL[dados.meuPapel]}
       snapshot={snapshot}

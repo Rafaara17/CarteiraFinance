@@ -19,7 +19,7 @@ export function Allocation({ snapshot }: { snapshot: PortfolioSnapshot }) {
     return (
       <div className="card">
         <div className="vazio">
-          <span className="vazio__ico" aria-hidden="true">🥧</span>
+          <span className="vazio__ico" aria-hidden="true">◔</span>
           <strong>Nada alocado ainda</strong>
           A carteira está 100% em caixa — compre um ativo em “Operar” para ver a distribuição.
         </div>

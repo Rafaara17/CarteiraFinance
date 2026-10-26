@@ -20,27 +20,37 @@
   --acento-forte: #7c0f0f;
 
   /* superfícies */
-  --fundo: #f6f7f9;
+  --fundo: #f4f1ec;
   --superficie: #ffffff;
-  --superficie-2: #f0f2f5;
-  --superficie-3: #e7eaef;
-  --lateral: #12314f;
-  --lateral-texto: #cbd8e6;
-  --lateral-ativo: #1d4a75;
+  --superficie-2: #efebe4;
+  --superficie-3: #e6e1d8;
+  --lateral: #17416b;
+  --lateral-texto: #c9d6e4;
+  --lateral-ativo: #0f2e4d;
+  --lateral-rotulo: #9db5cf;
 
-  --borda: #e2e6ec;
-  --borda-forte: #cdd4de;
+  --borda: #e3ddd3;
+  --borda-forte: #cfc7ba;
 
-  --texto: #131a23;
-  --texto-2: #4a5666;
-  --texto-3: #78859a;
+  --texto: #1f1f1f;
+  --texto-2: #5e5e5e;
+  --texto-3: #6b6b6b;
+  /* numeral gigante dos divisores de seção — decoração, nunca texto */
+  --texto-fantasma: #ddd7cd;
+  --texto-sobre-marca: #ffffff;
+
+  /* escopo da carteira: liga (marinho) × individual (grafite) */
+  --escopo-liga: var(--marca);
+  --escopo-individual: #3a3f47;
 
   /* semânticos (alta/baixa) — sempre acompanhados de sinal (+/−) ou posição,
      nunca cor sozinha */
   --pos: #0e7a45;
   --neg: #b11d1d;
-  --pos-fundo: #e8f5ee;
-  --neg-fundo: #fbecec;
+  --pos-fundo: #e4f1e8;
+  --neg-fundo: #f8e2e0;
+  /* linha da própria carteira nas tabelas */
+  --destaque: #f9dce2;
 
   /* paleta categórica de gráficos (validada: CVD ΔE >= 8 em pares adjacentes) */
   --serie-1: #2a78d6;
@@ -51,18 +61,20 @@
   --serie-6: #008300;
   --serie-7: #4a3aa7;
   --serie-8: #e34948;
-  --grade: #e2e6ec;
-  --eixo: #78859a;
+  --grade: #e3ddd3;
+  --eixo: #6b6b6b;
 
   --raio: 14px;
-  --raio-sm: 9px;
-  --sombra: 0 1px 2px rgba(19, 26, 35, 0.06), 0 2px 10px rgba(19, 26, 35, 0.04);
+  --raio-sm: 8px;
+  --raio-pill: 999px;
+  --sombra: 0 1px 2px rgba(31, 31, 31, 0.05), 0 2px 10px rgba(31, 31, 31, 0.04);
   --sombra-forte: 0 18px 48px rgba(15, 46, 77, 0.22);
 
   --fonte: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --fonte-titulo: "Montserrat", "Poppins", var(--fonte);
 
-  --lateral-largura: 232px;
+  --lateral-largura: 240px;
+  --conteudo-max: 1280px;
 
   color-scheme: light;
 }
@@ -82,18 +94,23 @@
     --lateral: #0a1017;
     --lateral-texto: #93a3b6;
     --lateral-ativo: #1c2b3c;
+    --lateral-rotulo: #6b7d91;
 
     --borda: #24303d;
     --borda-forte: #334456;
 
     --texto: #e9edf2;
     --texto-2: #a4b0be;
-    --texto-3: #75828f;
+    --texto-3: #8391a0;
+    --texto-fantasma: #1f2a36;
+    --texto-sobre-marca: #0d141c;
+    --escopo-individual: #c3cad3;
 
     --pos: #34d399;
     --neg: #f87171;
     --pos-fundo: #10291f;
     --neg-fundo: #2b1616;
+    --destaque: #3a1f28;
 
     /* mesmos oito matizes, re-escalonados para a superfície escura */
     --serie-1: #3987e5;
@@ -105,7 +122,7 @@
     --serie-7: #9085e9;
     --serie-8: #e66767;
     --grade: #24303d;
-    --eixo: #75828f;
+    --eixo: #8391a0;
 
     --sombra: 0 1px 2px rgba(0, 0, 0, 0.5);
     --sombra-forte: 0 18px 48px rgba(0, 0, 0, 0.6);
@@ -192,6 +209,40 @@ a:hover { text-decoration: underline; }
 .lateral__item:hover { background: rgba(255, 255, 255, 0.07); color: #fff; }
 .lateral__item.ativo { background: var(--lateral-ativo); color: #fff; font-weight: 600; }
 .lateral__item .ico { width: 18px; text-align: center; flex: none; opacity: 0.9; font-size: 0.95rem; }
+.lateral__secao {
+  padding: 0 0.5rem 0.3rem;
+  font-size: 0.69rem; line-height: 14px; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--lateral-rotulo);
+}
+/* área recolhida: uma linha que leva à outra área */
+.lateral__area {
+  display: flex; align-items: center; gap: 0.75rem; width: 100%;
+  padding: 0.6rem 0.75rem; border-radius: var(--raio-sm);
+  border: 1px solid rgba(255, 255, 255, 0.16); background: transparent;
+  color: #fff; font: inherit; font-size: 0.875rem; font-weight: 600; text-align: left;
+}
+.lateral__area:hover { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.24); }
+.lateral__area .seta { margin-left: auto; opacity: 0.7; }
+.lateral__perfil { display: flex; align-items: center; gap: 0.75rem; }
+.lateral__papel { color: var(--lateral-texto); font-size: 0.75rem; }
+.lateral__sair { width: 100%; color: var(--lateral-texto); border-color: rgba(255, 255, 255, 0.2); }
+.lateral__sair:hover { color: #fff; background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.3); }
+
+/* avatar com a inicial: a identidade da carteira individual */
+.avatar {
+  display: inline-grid; place-items: center; flex: none;
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--escopo-individual); color: var(--texto-sobre-marca);
+  font: 700 12px/1 var(--fonte-titulo);
+}
+.lateral .avatar { background: #fff; color: var(--marca); }
+.avatar--sm { width: 20px; height: 20px; font-size: 10px; }
+/* monograma da liga ao lado do rótulo da área */
+.marca-mini {
+  display: inline-grid; place-items: center; flex: none;
+  width: 28px; height: 28px; border-radius: 50%;
+  background: #fff; color: var(--marca); font: 800 11px/1 var(--fonte-titulo);
+}
 .lateral__rodape { margin-top: auto; padding: 0 0.45rem; font-size: 0.76rem; line-height: 1.45; opacity: 0.72; }
 .lateral__usuario {
   border-top: 1px solid rgba(255, 255, 255, 0.12);
@@ -200,7 +251,7 @@ a:hover { text-decoration: underline; }
   display: grid;
   gap: 0.5rem;
 }
-.lateral__nome { color: #fff; font-weight: 600; font-size: 0.86rem; }
+.lateral__nome { color: #fff; font-weight: 600; font-size: 0.86rem; line-height: 1.3; }
 
 .principal { min-width: 0; display: flex; flex-direction: column; }
 
@@ -212,7 +263,13 @@ a:hover { text-decoration: underline; }
   padding: 0.7rem 1.6rem;
   display: flex; align-items: center; gap: 1.1rem; flex-wrap: wrap;
 }
-.topo__titulo { font-family: var(--fonte-titulo); font-weight: 700; font-size: 1.05rem; }
+.topo__carteira {
+  font-family: var(--fonte-titulo); font-size: 0.75rem; line-height: 16px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase;
+}
+.topo__logo-mini { height: 20px; width: auto; display: block; }
+.topo__logo { height: 26px; width: auto; display: block; }
+.topo__celular { display: none; }
 .topo__patrimonio { display: flex; align-items: baseline; gap: 0.55rem; }
 .topo__patrimonio .valor {
   font-family: var(--fonte-titulo); font-weight: 700; font-size: 1.15rem;
@@ -220,19 +277,64 @@ a:hover { text-decoration: underline; }
 }
 .topo__rot { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--texto-3); font-weight: 700; }
 
-.conteudo { padding: 1.5rem 1.6rem 4rem; width: 100%; flex: 1; }
+.conteudo { padding: 1.5rem 1.5rem 4rem; width: 100%; flex: 1; }
+
+/* cabeçalho de página (padrão dos slides): eyebrow, título, subtítulo */
+.cab { margin-bottom: 1.25rem; }
+.eyebrow {
+  display: flex; align-items: center; gap: 0.5rem; margin: 0 0 0.25rem;
+  font-family: var(--fonte-titulo); font-size: 0.75rem; line-height: 16px;
+  font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--escopo, var(--acento));
+}
+.eyebrow--acento { color: var(--acento); }
+.titulo-pagina {
+  font-family: var(--fonte-titulo); font-size: 1.75rem; line-height: 34px;
+  font-weight: 800; letter-spacing: -0.02em; margin: 0; color: var(--texto);
+}
+.titulo-pagina--entrada { font-size: 1.5rem; line-height: 30px; }
+.subtitulo { margin: 0.25rem 0 0; color: var(--texto-2); font-size: 0.94rem; line-height: 22px; }
+
+/* divisor de seção com numeral fantasma ("01", "02") — páginas longas */
+.divisor { position: relative; padding: 2rem 0 1rem; }
+.divisor__num {
+  position: absolute; left: 0; top: -8px; z-index: 0;
+  font-family: var(--fonte-titulo); font-weight: 800; font-size: 120px; line-height: 1;
+  letter-spacing: -0.04em; color: var(--texto-fantasma); user-select: none;
+}
+.divisor__titulo { position: relative; z-index: 1; margin: 0; padding-left: 64px; font-size: 1.25rem; }
 
 /* barra inferior no celular */
 .mobile-nav { display: none; }
+.mais-menu { display: none; }
 /* cópia do seletor de carteira que só aparece quando a lateral some */
 .seletor-mobile { display: none; }
 
 @media (max-width: 900px) {
   .app { grid-template-columns: 1fr; }
   .lateral { display: none; }
-  .topo { padding: 0.65rem 1rem; }
-  /* a lateral sumiu: o seletor de carteira passa a viver no topo */
-  .seletor-mobile { display: block; flex-basis: 100%; order: 3; }
+  .topo { padding: 0.75rem 1rem; gap: 0.65rem; position: static; }
+  /* a lateral sumiu: logo, avatar e o seletor de área passam a viver no topo */
+  .topo__celular { display: flex; align-items: center; flex-basis: 100%; }
+  .seletor-mobile { display: block; flex-basis: 100%; }
+  .topo > .topo__carteira, .topo > .spacer { display: none; }
+  .topo__patrimonio { flex-basis: 100%; }
+  .titulo-pagina { font-size: 1.5rem; line-height: 30px; }
+  .mais-menu {
+    display: grid; gap: 2px;
+    position: fixed; right: 0.5rem; bottom: calc(4.8rem + env(safe-area-inset-bottom)); z-index: 31;
+    min-width: 220px; padding: 0.4rem;
+    background: var(--superficie); border: 1px solid var(--borda); border-radius: var(--raio);
+    box-shadow: var(--sombra-forte);
+  }
+  .mais-menu button {
+    display: flex; align-items: center; gap: 0.75rem; min-height: 44px;
+    background: transparent; border: none; color: var(--texto); text-align: left;
+    padding: 0.5rem 0.75rem; font-weight: 500;
+  }
+  .mais-menu button:hover { background: var(--superficie-2); }
+  .mais-menu button.ativo { background: var(--superficie-2); font-weight: 700; }
+  .mais-menu .ico { width: 18px; text-align: center; }
   .conteudo { padding: 1rem 1rem 5.5rem; }
   .mobile-nav {
     display: flex;
@@ -243,7 +345,7 @@ a:hover { text-decoration: underline; }
     overflow-x: auto;
   }
   .mobile-nav button {
-    flex: 1 0 auto; min-width: 62px;
+    flex: 1 0 auto; min-width: 62px; min-height: 44px;
     background: transparent; border: none; color: var(--lateral-texto);
     display: grid; gap: 2px; justify-items: center;
     font: inherit; font-size: 0.64rem; font-weight: 600;
@@ -289,7 +391,7 @@ a:hover { text-decoration: underline; }
 .kpi .extra { font-size: 0.78rem; color: var(--texto-2); margin-top: 0.25rem; font-variant-numeric: tabular-nums; }
 .kpi .extra.pos { color: var(--pos); }
 .kpi .extra.neg { color: var(--neg); }
-.kpi--destaque { border-left: 3px solid var(--marca); }
+.kpi--destaque { border-top: 3px solid var(--marca); }
 
 /* número-herói do topo do painel */
 .heroi { display: grid; gap: 0.15rem; }
@@ -327,7 +429,7 @@ input:disabled { background: var(--superficie-2); color: var(--texto-2); }
 button {
   border: 1px solid var(--marca);
   background: var(--marca);
-  color: #fff;
+  color: var(--texto-sobre-marca);
   padding: 0.58rem 1.15rem;
   border-radius: var(--raio-sm);
   cursor: pointer;
@@ -342,6 +444,9 @@ button.secundario { background: transparent; color: var(--texto); border-color: 
 button.secundario:hover { background: var(--superficie-2); border-color: var(--marca); }
 button.perigo { background: var(--acento); border-color: var(--acento); }
 button.perigo:hover { background: var(--acento-forte); border-color: var(--acento-forte); }
+button.texto { background: transparent; border-color: transparent; color: var(--marca); }
+button.texto:hover { background: var(--superficie-2); border-color: transparent; }
+button:focus-visible { outline: 2px solid var(--marca); outline-offset: 2px; }
 button:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
 button:disabled:hover { background: var(--marca); border-color: var(--marca); }
 button.secundario:disabled:hover { background: transparent; border-color: var(--borda-forte); }
@@ -351,17 +456,22 @@ button.secundario:disabled:hover { background: transparent; border-color: var(--
    ========================================================================= */
 
 .tabela-scroll { overflow-x: auto; margin: 0 -1.25rem; padding: 0 1.25rem; }
-table { border-collapse: collapse; width: 100%; font-size: 0.875rem; }
+table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 0.875rem; }
 th, td { padding: 0.62rem 0.7rem; border-bottom: 1px solid var(--borda); text-align: left; white-space: nowrap; }
-th:first-child, td:first-child { padding-left: 0; }
-th:last-child, td:last-child { padding-right: 0; }
 td { font-variant-numeric: tabular-nums; }
+/* cabeçalho marinho com texto branco, como nos slides da liga */
 th {
-  color: var(--texto-3); font-weight: 700; font-size: 0.68rem;
+  background: var(--marca); color: var(--texto-sobre-marca);
+  font-weight: 700; font-size: 0.69rem;
   text-transform: uppercase; letter-spacing: 0.06em;
-  border-bottom: 1px solid var(--borda-forte);
+  padding-top: 0.5rem; padding-bottom: 0.5rem;
+  border-bottom: none;
 }
-tbody tr:hover { background: var(--superficie-2); }
+thead tr:first-child th:first-child { border-top-left-radius: var(--raio-sm); }
+thead tr:first-child th:last-child { border-top-right-radius: var(--raio-sm); }
+tr.destaque td { background: var(--destaque); }
+tr.destaque td:first-child { font-weight: 700; }
+tbody tr:hover td { background: var(--superficie-2); }
 tbody tr:last-child td { border-bottom: none; }
 .td-principal { font-weight: 600; }
 .td-sub { color: var(--texto-3); font-size: 0.74rem; font-weight: 400; }
@@ -417,14 +527,14 @@ tbody tr:last-child td { border-bottom: none; }
 .badge--marca { background: color-mix(in srgb, var(--marca) 12%, transparent); color: var(--marca); border-color: transparent; }
 
 .alerta {
-  border-left: 3px solid var(--neg);
+  border: 1px solid transparent;
   background: var(--neg-fundo);
   color: var(--texto);
   padding: 0.7rem 0.9rem; border-radius: var(--raio-sm);
   font-size: 0.88rem;
 }
 .aviso {
-  border-left: 3px solid var(--marca);
+  border: 1px solid var(--borda);
   background: var(--superficie-2);
   padding: 0.7rem 0.9rem; border-radius: var(--raio-sm);
   font-size: 0.88rem;
@@ -472,17 +582,17 @@ tbody tr:last-child td { border-bottom: none; }
 }
 
 /* -------------------------------------------------------------------------
-   ESCOPO DE CARTEIRA — liga (marinho da marca) vs. pessoal (roxo).
+   ESCOPO DE CARTEIRA — liga (marinho da marca) vs. individual (grafite).
    A cor é reforço: quem informa é o rótulo no topo e o seletor. Por isso o
    --marca NÃO é remapeado (repintaria o app inteiro e confundiria a identidade
    da liga), e o vermelho --acento está fora: colide com --neg, o sinal de queda.
    ------------------------------------------------------------------------- */
 .app { --escopo: var(--marca); }
-.app[data-escopo="pessoal"] { --escopo: var(--serie-7); }
+.app[data-escopo="pessoal"] { --escopo: var(--escopo-individual); }
 
 .segmented--escopo { display: flex; width: 100%; }
 .segmented--escopo button { flex: 1; white-space: nowrap; }
-.segmented--escopo button.ativo { background: var(--escopo); color: #fff; }
+.segmented--escopo button.ativo { background: var(--escopo); color: var(--texto-sobre-marca); }
 
 /* na lateral escura o trilho precisa de fundo próprio */
 .lateral .segmented--escopo {
@@ -494,7 +604,7 @@ tbody tr:last-child td { border-bottom: none; }
 .lateral .segmented--escopo button.ativo { color: #fff; }
 
 /* faixa permanente: a única coisa que atravessa o topo inteiro */
-.topo { border-top: 3px solid var(--escopo); }
+.topo { border-top: 4px solid var(--escopo); }
 .topo__carteira { display: flex; align-items: center; gap: 0.4rem; color: var(--escopo); }
 .ponto-escopo {
   width: 8px; height: 8px; border-radius: 50%;
@@ -554,10 +664,10 @@ tbody tr:last-child td { border-bottom: none; }
 
 .login-wrap {
   min-height: 100%; display: grid; place-items: center; padding: 2rem 1.25rem;
-  background: radial-gradient(1100px 480px at 50% -10%, color-mix(in srgb, var(--marca) 14%, transparent), transparent 62%), var(--fundo);
+  background: var(--fundo);
 }
 .login-card {
-  width: 100%; max-width: 400px;
+  width: 100%; max-width: 440px;
   background: var(--superficie);
   border: 1px solid var(--borda);
   border-radius: var(--raio);
@@ -565,13 +675,15 @@ tbody tr:last-child td { border-bottom: none; }
   overflow: hidden;
 }
 .login-hero {
-  background: var(--lateral); padding: 2rem 1.6rem 1.5rem;
-  border-bottom: 3px solid var(--acento); text-align: center;
+  background: var(--lateral); padding: 2rem 1.75rem 1.6rem;
+  border-bottom: 4px solid var(--acento); text-align: center;
 }
-.login-hero p { color: var(--lateral-texto); margin: 0.85rem 0 0; font-size: 0.84rem; }
+.login-hero p { color: var(--lateral-texto); margin: 0.75rem 0 0; font-size: 0.875rem; }
 .login-hero .marca__mono { width: 56px; height: 56px; font-size: 1.4rem; margin: 0 auto; }
-.login-hero .marca__img { height: 68px; max-width: 280px; margin: 0 auto; }
-.login-body { padding: 1.5rem 1.6rem 1.7rem; }
+.login-hero .marca__img { height: 56px; max-width: 280px; margin: 0 auto; }
+.login-body { padding: 1.75rem; display: grid; gap: 1rem; }
+.login-body .campo { margin-bottom: 0; }
+.login-body button { min-height: 44px; }
 
 /* =========================================================================
    MARCA
@@ -601,4 +713,205 @@ tbody tr:last-child td { border-bottom: none; }
   body { background: #fff; }
   .card, .kpi { box-shadow: none; break-inside: avoid; }
   .conteudo { padding: 0; }
+}
+
+/* =========================================================================
+   LÂMINA — factsheet A4 de uma página
+   É um documento: papel branco e cores da marca fixas, em qualquer tema.
+   ========================================================================= */
+
+.lamina {
+  --l-marca: #17416b;
+  --l-marca-forte: #0f2e4d;
+  --l-acento: #9b1313;
+  --l-tinta: #1a1d21;
+  --l-tinta-2: #565b63;
+  --l-tinta-3: #80858c;
+  --l-linha: #e4e0d8;
+  --l-fundo-2: #f6f4ef;
+  --l-pos: #0e7a45;
+  --l-neg: #b11d1d;
+
+  page: lamina;
+  width: 210mm;
+  max-width: 100%;
+  min-height: 297mm;
+  margin: 0 auto;
+  background: #fff;
+  color: var(--l-tinta);
+  font-family: var(--fonte);
+  font-size: 10.5px;
+  line-height: 1.4;
+  box-shadow: var(--sombra-forte);
+  display: flex;
+  flex-direction: column;
+  color-scheme: light;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.lamina .pos { color: var(--l-pos); }
+.lamina .neg { color: var(--l-neg); }
+
+.lamina__topo {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 7mm;
+  padding: 6mm 9mm;
+  background: var(--l-marca);
+  color: #fff;
+  border-bottom: 1.2mm solid var(--l-acento);
+}
+.lamina__logo-area { padding-right: 7mm; border-right: 1px solid rgba(255, 255, 255, 0.25); }
+.lamina__logo { height: 13mm; width: auto; display: block; }
+.lamina__topo .marca__mono { background: #fff; color: var(--l-marca); }
+.lamina__titulo h1 {
+  font-family: var(--fonte-titulo); font-size: 19px; font-weight: 800;
+  letter-spacing: -0.02em; margin: 1px 0 2px; color: #fff;
+}
+.lamina__eyebrow, .lamina__database span {
+  font-family: var(--fonte-titulo); font-size: 8.5px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase; color: #b9cbe0;
+}
+.lamina__sub { font-size: 10px; color: #dbe5f0; }
+.lamina__database { text-align: right; display: grid; gap: 2px; }
+.lamina__database b { font-family: var(--fonte-titulo); font-size: 14px; font-variant-numeric: tabular-nums; }
+
+.lamina__faixa {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  margin: 0 9mm;
+  border-bottom: 1px solid var(--l-linha);
+}
+.lamina__destaque { padding: 4mm 3mm 3.5mm; display: grid; gap: 1px; border-left: 1px solid var(--l-linha); }
+.lamina__destaque:first-child { border-left: none; padding-left: 0; }
+.lamina__destaque-rot {
+  font-size: 8px; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--l-tinta-3);
+}
+.lamina__destaque b {
+  font-family: var(--fonte-titulo); font-size: 17px; font-weight: 700;
+  letter-spacing: -0.02em; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.lamina__destaque-extra { font-size: 9px; color: var(--l-tinta-2); font-variant-numeric: tabular-nums; }
+
+.lamina__corpo {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 61mm 1fr;
+  gap: 7mm;
+  padding: 4mm 9mm 0;
+}
+.lamina__lateral {
+  display: flex; flex-direction: column; gap: 3.5mm;
+  padding-right: 7mm; border-right: 1px solid var(--l-linha);
+}
+.lamina__principal { display: flex; flex-direction: column; gap: 4mm; min-width: 0; }
+
+.lamina__secao h2 {
+  display: flex; align-items: baseline; gap: 6px;
+  font-family: var(--fonte-titulo); font-size: 10px; font-weight: 800;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--l-marca);
+  margin: 0 0 2mm; padding-bottom: 1.2mm; border-bottom: 1.5px solid var(--l-marca);
+}
+.lamina__secao h2 span {
+  font-family: var(--fonte); font-size: 8.5px; font-weight: 500;
+  letter-spacing: 0; text-transform: none; color: var(--l-tinta-3);
+}
+.lamina__texto { margin: 0; color: var(--l-tinta-2); font-size: 9.5px; line-height: 1.5; }
+.lamina__comentario { white-space: pre-line; color: var(--l-tinta); }
+
+.lamina__lista { margin: 0; display: grid; }
+.lamina__lista > div {
+  display: flex; justify-content: space-between; gap: 8px;
+  padding: 0.85mm 0; border-bottom: 1px dotted var(--l-linha);
+}
+.lamina__lista > div:last-child { border-bottom: none; }
+.lamina__lista dt { color: var(--l-tinta-2); display: flex; align-items: center; gap: 5px; }
+.lamina__lista dd { margin: 0; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+.lamina__lista dt i { width: 7px; height: 7px; border-radius: 2px; flex: none; }
+
+.lamina__aloc { display: flex; align-items: center; gap: 7mm; }
+.lamina__pizza { flex: none; }
+.lamina__lista--aloc { flex: 1; grid-template-columns: repeat(2, 1fr); column-gap: 6mm; align-content: center; }
+.lamina__lista--aloc > div:last-child { border-bottom: 1px dotted var(--l-linha); }
+
+.lamina__legenda { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-bottom: 1.5mm; font-size: 9px; color: var(--l-tinta-2); }
+.lamina__legenda span { display: inline-flex; align-items: center; gap: 5px; }
+.lamina__legenda i { width: 12px; height: 3px; border-radius: 2px; }
+.lamina__legenda b { color: var(--l-tinta); font-variant-numeric: tabular-nums; }
+.lamina__grafico { height: 46mm; width: 100%; }
+
+/* tabelas da lâmina: neutraliza o cabeçalho marinho e o hover das telas */
+.lamina__rolagem { overflow-x: auto; }
+.lamina__tabela { width: 100%; border-collapse: collapse; font-size: 9px; }
+.lamina__tabela th, .lamina__tabela td {
+  padding: 1mm 1.4mm; border-bottom: 1px solid var(--l-linha);
+  white-space: nowrap; text-align: left; background: none;
+}
+.lamina__tabela th {
+  color: var(--l-tinta-3); font-size: 7.5px; font-weight: 700;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  border-bottom: 1px solid var(--l-tinta-3); border-radius: 0 !important;
+}
+.lamina__tabela td { font-variant-numeric: tabular-nums; color: var(--l-tinta); }
+.lamina__tabela .r { text-align: right; }
+.lamina__tabela .forte { font-weight: 700; }
+.lamina__tabela tbody tr:hover td { background: none; }
+.lamina__tabela tbody tr:last-child td { border-bottom: 1px solid var(--l-linha); }
+.lamina__tabela td.pos { color: var(--l-pos); }
+.lamina__tabela td.neg { color: var(--l-neg); }
+.lamina__linha-carteira td { font-weight: 600; }
+.lamina__linha-carteira td:first-child { color: var(--l-marca); }
+.lamina__tabela tfoot td { font-weight: 700; color: var(--l-marca); border-bottom: none; border-top: 1.5px solid var(--l-marca); }
+.lamina__tabela--grade th, .lamina__tabela--grade td { padding: 0.9mm 0.9mm; font-size: 8.5px; }
+.lamina__tabela--grade tbody tr:not(.lamina__linha-carteira) td { color: var(--l-tinta-3); }
+.lamina__ano-rot { font-family: var(--fonte-titulo); font-weight: 800 !important; color: var(--l-marca) !important; vertical-align: middle; }
+.lamina__nome { color: var(--l-tinta-3); font-size: 8.5px; overflow: hidden; text-overflow: ellipsis; display: inline-block; max-width: 34mm; vertical-align: bottom; }
+.lamina__tabela .lamina__peso-cel { width: 16mm; padding-right: 0; }
+.lamina__peso {
+  display: block; width: 16mm; height: 1.6mm;
+  background: var(--l-fundo-2); border-radius: 1px; overflow: hidden;
+}
+.lamina__peso span { display: block; height: 100%; background: var(--l-marca); }
+
+.lamina__rodape {
+  margin: 4mm 9mm 0; padding: 3mm 0 5mm;
+  border-top: 1px solid var(--l-linha); color: var(--l-tinta-3); font-size: 7.5px; line-height: 1.45;
+}
+.lamina__rodape p { margin: 0; }
+.lamina__rodape b { color: var(--l-tinta-2); }
+.lamina__rodape-marca {
+  display: flex; justify-content: space-between; gap: 8px; margin-top: 2mm !important;
+  font-family: var(--fonte-titulo); font-weight: 700; color: var(--l-marca);
+}
+
+.lamina-comentario {
+  width: 100%; resize: vertical; font: inherit; font-size: 0.9rem;
+  padding: 0.58rem 0.75rem; border: 1px solid var(--borda-forte);
+  border-radius: var(--raio-sm); background: var(--superficie); color: var(--texto);
+}
+.lamina-comentario:focus { outline: none; border-color: var(--marca); box-shadow: 0 0 0 3px color-mix(in srgb, var(--marca) 20%, transparent); }
+
+/* celular: a folha vira uma coluna (a impressão continua A4) */
+@media screen and (max-width: 820px) {
+  .lamina { min-height: 0; font-size: 12px; }
+  .lamina__topo { grid-template-columns: 1fr; gap: 3mm; padding: 5mm; }
+  .lamina__logo-area { border: none; padding: 0; }
+  .lamina__database { text-align: left; }
+  .lamina__faixa { grid-template-columns: repeat(2, 1fr); margin: 0 5mm; }
+  .lamina__destaque, .lamina__destaque:first-child { border-left: none; padding-left: 0; }
+  .lamina__corpo { grid-template-columns: 1fr; padding: 4mm 5mm 0; }
+  .lamina__lateral { padding-right: 0; border-right: none; }
+  .lamina__rodape { margin: 4mm 5mm 0; }
+}
+
+@page lamina { size: A4 portrait; margin: 0; }
+
+@media print {
+  /* só a folha sai na impressão */
+  .conteudo:has(.lamina-tela) > :not(.lamina-tela) { display: none !important; }
+  .lamina-tela > :not(.lamina) { display: none !important; }
+  .lamina-tela { display: block; }
+  .lamina { box-shadow: none; width: 210mm; height: 297mm; min-height: 0; overflow: hidden; margin: 0; }
 }

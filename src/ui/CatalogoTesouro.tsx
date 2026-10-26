@@ -78,7 +78,7 @@ export function CatalogoTesouro({
     return (
       <div className="card">
         <div className="vazio">
-          <span className="vazio__ico" aria-hidden="true">🏛️</span>
+          <span className="vazio__ico" aria-hidden="true">▥</span>
           <strong>Catálogo do Tesouro ainda vazio</strong>
           {erro
             ? `Não foi possível carregar: ${erro}`

@@ -256,7 +256,7 @@ function ComprarAcao({ snapshot, membro, precos, carteiraId, onDone }: Props) {
             onChange={(e) => setPreco(e.target.value)}
             disabled={precoTravado || det == null}
             inputMode="decimal"
-            placeholder={detectando ? "Consultando…" : "vem da bolsa"}
+            placeholder={detectando ? "Consultando…" : "Preço"}
           />
         </div>
       </div>
@@ -299,7 +299,7 @@ function ComprarAcao({ snapshot, membro, precos, carteiraId, onDone }: Props) {
           value={nomeBolsa || nomeManual}
           onChange={(e) => setNomeManual(e.target.value)}
           disabled={nomeBolsa !== "" || det == null}
-          placeholder={detectando ? "Consultando a bolsa…" : "vem da bolsa ao digitar o ticker"}
+          placeholder={detectando ? "Consultando a bolsa…" : "Nome da empresa"}
         />
         {det != null && !nomeBolsa && (
           <p className="muted" style={{ fontSize: "0.78rem", marginTop: "0.3rem" }}>
@@ -433,7 +433,7 @@ function Vender({ snapshot, precos, membro, carteiraId, onDone }: Props) {
     return (
       <div className="card">
         <div className="vazio">
-          <span className="vazio__ico" aria-hidden="true">📭</span>
+          <span className="vazio__ico" aria-hidden="true">⇄</span>
           <strong>Nada para vender</strong>
           A carteira não tem posições abertas.
         </div>

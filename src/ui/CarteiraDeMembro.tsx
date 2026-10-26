@@ -98,7 +98,7 @@ export function CarteiraDeMembro(props: Props) {
       {snapshot.posicoes.length === 0 ? (
         <div className="card">
           <div className="vazio">
-            <span className="vazio__ico" aria-hidden="true">💵</span>
+            <span className="vazio__ico" aria-hidden="true">$</span>
             <strong>100% em caixa</strong>
             Nenhuma posição aberta — {fmtBRL(snapshot.caixaBRL)} esperando destino.
           </div>

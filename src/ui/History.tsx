@@ -13,7 +13,7 @@ export function History({ transacoes }: { transacoes: Transacao[] }) {
     return (
       <div className="card">
         <div className="vazio">
-          <span className="vazio__ico" aria-hidden="true">🧾</span>
+          <span className="vazio__ico" aria-hidden="true">↻</span>
           <strong>Nenhuma operação registrada</strong>
           O histórico é imutável: toda compra, venda e provento fica gravado aqui para sempre.
         </div>

@@ -17,7 +17,7 @@ export function Positions({ snapshot }: { snapshot: PortfolioSnapshot }) {
     return (
       <div className="card">
         <div className="vazio">
-          <span className="vazio__ico" aria-hidden="true">📈</span>
+          <span className="vazio__ico" aria-hidden="true">◧</span>
           <strong>Nenhuma posição ainda</strong>
           Vá em <em>Operar</em> para comprar o primeiro ativo. Caixa disponível:{" "}
           {fmtBRL(snapshot.caixaBRL)}.

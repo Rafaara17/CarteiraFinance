@@ -337,7 +337,7 @@ function MaioresPosicoes({ snapshot, onIrPara }: { snapshot: PortfolioSnapshot; 
       </div>
       {top.length === 0 ? (
         <div className="vazio">
-          <span className="vazio__ico" aria-hidden="true">📈</span>
+          <span className="vazio__ico" aria-hidden="true">◧</span>
           <strong>Nenhuma posição ainda</strong>
           A carteira está 100% em caixa.
         </div>

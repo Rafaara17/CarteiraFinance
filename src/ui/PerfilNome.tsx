@@ -39,16 +39,16 @@ export function PerfilNome({ sugestao, onSalvar, onSair }: Props) {
     <div className="login-wrap">
       <form className="login-card" onSubmit={salvar}>
         <div className="login-hero">
-          <Marca />
-          <p>Liga de Mercado Financeiro da ESALQ/USP · Carteira da Liga</p>
+          <Marca variante="branca" />
+          <p>Bem-vindo à Carteira da liga</p>
         </div>
 
         <div className="login-body">
-          <h3 style={{ margin: "0 0 0.5rem" }}>Como você quer aparecer?</h3>
-          <p className="muted" style={{ marginTop: 0 }}>
-            Este é o nome que os outros membros vão ver no ranking, nos campeões da semana e nas
-            comparações entre carteiras. Use seu nome de verdade.
-          </p>
+          <div>
+            <p className="eyebrow eyebrow--acento">Primeiro acesso</p>
+            <h1 className="titulo-pagina titulo-pagina--entrada">Como você quer aparecer?</h1>
+            <p className="subtitulo">É o nome que os outros membros veem no ranking. Use seu nome de verdade.</p>
+          </div>
 
           <div className="campo">
             <label htmlFor="perfil-nome">Seu nome</label>
@@ -75,9 +75,9 @@ export function PerfilNome({ sugestao, onSalvar, onSair }: Props) {
 
           <button
             type="button"
-            className="secundario"
+            className="texto"
             onClick={onSair}
-            style={{ width: "100%", marginTop: "0.9rem" }}
+            style={{ width: "100%" }}
           >
             Sair
           </button>

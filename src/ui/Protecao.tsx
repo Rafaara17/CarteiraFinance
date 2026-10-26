@@ -156,7 +156,7 @@ function SemHistorico({ carregando }: { carregando: boolean }) {
   return (
     <div className="card">
       <div className="vazio">
-        <span className="vazio__ico" aria-hidden="true">📉</span>
+        <span className="vazio__ico" aria-hidden="true">⛨</span>
         <strong>{carregando ? "Carregando a série histórica…" : "Sem série histórica suficiente"}</strong>
         {!carregando && "O VaR usa 252 pregões de prices_history. Um admin pode gerá-la em Admin → Série histórica."}
       </div>

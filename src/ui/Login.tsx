@@ -27,14 +27,16 @@ export function Login() {
     <div className="login-wrap">
       <form className="login-card" onSubmit={entrar}>
         <div className="login-hero">
-          <Marca />
-          <p>Liga de Mercado Financeiro da ESALQ/USP · Carteira da Liga</p>
+          <Marca variante="branca" />
+          <p>Carteira · simulador da liga</p>
         </div>
 
         <div className="login-body">
-          <p className="muted" style={{ marginTop: 0 }}>
-            Acesso restrito aos membros. Use o e-mail e a senha cadastrados pelo administrador.
-          </p>
+          <div>
+            <p className="eyebrow eyebrow--acento">Acesso de membros</p>
+            <h1 className="titulo-pagina titulo-pagina--entrada">Entrar</h1>
+            <p className="subtitulo">Use o e-mail e a senha cadastrados pelo administrador.</p>
+          </div>
 
           <div className="campo">
             <label>E-mail</label>

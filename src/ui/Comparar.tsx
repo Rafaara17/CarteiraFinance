@@ -285,7 +285,7 @@ function Campeoes({ ranking }: { ranking: RankingPeriodo }) {
           <span className="muted">uma vencedora a cada {unidade}</span>
         </div>
         <div className="vazio">
-          <span className="vazio__ico" aria-hidden="true">🏆</span>
+          <span className="vazio__ico" aria-hidden="true">⚖</span>
           <strong>Nenhum{ranking.periodo === "semana" ? "a semana fechada" : ` ${unidade} fechado`} ainda</strong>
         </div>
       </div>

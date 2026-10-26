@@ -34,7 +34,7 @@ export function SeletorCarteira({ escopo, onTrocar, ativada, className }: Props)
     <div
       className={`segmented segmented--escopo ${className ?? ""}`}
       role="group"
-      aria-label="Carteira em uso"
+      aria-label="Área"
     >
       <button
         className={escopo === "liga" ? "ativo" : ""}
@@ -48,7 +48,7 @@ export function SeletorCarteira({ escopo, onTrocar, ativada, className }: Props)
         onClick={() => onTrocar("pessoal")}
         aria-pressed={escopo === "pessoal"}
       >
-        {ativada ? "Individual" : "Individual · ativar"}
+        {ativada ? "Minha carteira" : "Minha carteira · ativar"}
       </button>
     </div>
   );

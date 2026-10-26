@@ -1,22 +1,31 @@
 import { useState } from "react";
 
-// Marca da liga. Tenta carregar o logo do repositório (public/logo.svg|png|webp);
-// se não houver arquivo, cai no monograma "EF" nas cores da marca.
-// Para usar o logo real: adicione o arquivo em `public/` com o nome `logo.svg`
-// (ou logo.png / logo.webp).
-const CANDIDATOS = ["logo.svg", "logo.png", "logo.webp"];
+// Marca da liga. Tenta carregar o logo do repositório (public/); se não houver
+// arquivo, cai no monograma "EF" nas cores da marca.
+// - "colorida" (logo.png): para fundo claro.
+// - "branca" (logo-branca.png): para a lateral e o login, sobre o marinho.
+const CANDIDATOS = {
+  colorida: ["logo.svg", "logo.png", "logo.webp"],
+  branca: ["logo-branca.svg", "logo-branca.png", "logo-branca.webp"],
+} as const;
 
-export function Marca() {
+interface Props {
+  variante?: keyof typeof CANDIDATOS;
+  className?: string;
+}
+
+export function Marca({ variante = "colorida", className = "marca__img" }: Props) {
   const [i, setI] = useState(0);
   const base = import.meta.env.BASE_URL;
+  const lista = CANDIDATOS[variante];
 
-  if (i >= CANDIDATOS.length) {
+  if (i >= lista.length) {
     return <div className="marca__mono">EF</div>;
   }
   return (
     <img
-      className="marca__img"
-      src={base + CANDIDATOS[i]}
+      className={className}
+      src={base + lista[i]}
       alt="ESALQ Finance"
       onError={() => setI((n) => n + 1)}
     />
